@@ -1,0 +1,23 @@
+# Local job-search data — never commit your real applications
+.jobhunt/
+*.db
+*.sqlite3
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
