@@ -155,3 +155,15 @@ def test_strip_html_handles_entities_and_whitespace():
 
 def test_source_error_is_a_runtime_error():
     assert issubclass(SourceError, RuntimeError)
+
+
+def test_parse_hn_drops_a_header_that_is_only_a_link():
+    payload = {"children": [{"id": 9, "text": "https://futo.tech/ - FUTO"}]}
+    assert parse_hn(payload) == []
+
+
+def test_parse_hn_strips_links_out_of_company_and_role():
+    payload = {"children": [{"id": 5, "text": "Acme https://acme.com - Backend Engineer"}]}
+    (posting,) = parse_hn(payload)
+    assert posting.company == "Acme"
+    assert posting.title == "Backend Engineer"

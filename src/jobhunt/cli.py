@@ -62,6 +62,12 @@ def build_parser() -> argparse.ArgumentParser:
     fetch.add_argument("--source", action="append", dest="sources", choices=SOURCES)
     fetch.add_argument("--limit", type=int, help="maximum postings to take per source")
     fetch.add_argument("--keyword", action="append", dest="keywords")
+    fetch.add_argument(
+        "--require",
+        action="append",
+        dest="require",
+        help="terms where at least one must also appear (combine with --keyword as AND)",
+    )
     fetch.add_argument("--exclude", action="append", dest="exclude")
     fetch.add_argument("--location", action="append", dest="locations")
     fetch.add_argument("--remote-only", action="store_true", default=None)
@@ -87,6 +93,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     criteria = subparsers.add_parser("criteria", help="show or change the saved search settings")
     criteria.add_argument("--keywords", nargs="*")
+    criteria.add_argument("--require", nargs="*")
     criteria.add_argument("--exclude", nargs="*")
     criteria.add_argument("--locations", nargs="*")
     criteria.add_argument("--sources", nargs="*", choices=SOURCES)
@@ -244,6 +251,7 @@ def _resolve_criteria(args: argparse.Namespace, config: Config) -> Criteria:
     """Combine command-line flags with saved settings, flags winning per field."""
     return Criteria(
         keywords=tuple(args.keywords if args.keywords is not None else config.keywords),
+        require=tuple(args.require if args.require is not None else config.require),
         exclude=tuple(args.exclude if args.exclude is not None else config.exclude),
         locations=tuple(args.locations if args.locations is not None else config.locations),
         remote_only=args.remote_only if args.remote_only is not None else config.remote_only,
@@ -385,6 +393,9 @@ def _cmd_criteria(_store: Store | None, args: argparse.Namespace) -> int:
     changed = False
     if args.keywords is not None:
         config.keywords = args.keywords
+        changed = True
+    if args.require is not None:
+        config.require = args.require
         changed = True
     if args.exclude is not None:
         config.exclude = args.exclude

@@ -59,9 +59,27 @@ def test_remote_only_drops_on_site_roles():
     assert Criteria(remote_only=True).matches(posting(remote=True))
 
 
-def test_location_filter_is_a_substring_match():
+def test_location_filter_matches_whole_words():
     assert Criteria(locations=("london",)).matches(posting(location="London, UK"))
     assert not Criteria(locations=("london",)).matches(posting(location="Berlin"))
+
+
+def test_short_terms_do_not_match_unrelated_words():
+    """The whole-word rule is what stops 'intern' matching 'internal'."""
+    assert not Criteria(require=("intern",)).matches(posting(description="internal tooling"))
+    assert Criteria(require=("intern",)).matches(posting(description="internal tooling, interns"))
+
+
+def test_uk_does_not_match_ukraine():
+    assert not Criteria(locations=("uk",)).matches(posting(location="Kyiv, Ukraine"))
+    assert Criteria(locations=("uk",)).matches(posting(location="London, UK"))
+
+
+def test_inflections_still_match():
+    assert Criteria(keywords=("engineer",)).matches(posting(title="Engineering Manager role"))
+    assert Criteria(keywords=("engineer",)).matches(posting(title="Backend Engineers wanted"))
+    assert Criteria(require=("intern",)).matches(posting(title="Summer Internship"))
+    assert Criteria(keywords=("graduate",)).matches(posting(description="graduates welcome"))
 
 
 def test_location_filter_drops_onsite_roles_with_unknown_location():
@@ -98,3 +116,32 @@ def test_rank_keeps_input_order_for_ties():
     first, second = posting(company="A"), posting(company="B")
     ranked = criteria.rank([first, second])
     assert [item.company for item, _ in ranked] == ["A", "B"]
+
+
+def test_require_is_a_second_gate_beside_keywords():
+    """keywords and require are separate OR-groups, and both must be satisfied."""
+    criteria = Criteria(keywords=("engineer", "developer"), require=("junior", "graduate"))
+    assert criteria.matches(posting(title="Junior Software Engineer"))
+    assert not criteria.matches(posting(title="Senior Software Engineer"))
+    assert not criteria.matches(posting(title="Junior Sales Executive"))
+
+
+def test_require_alone_is_enough():
+    assert Criteria(require=("junior",)).matches(posting(description="a junior role"))
+    assert not Criteria(require=("junior",)).matches(posting())
+
+
+def test_blank_require_entries_are_ignored():
+    assert Criteria(require=("", "   ")).matches(posting())
+
+
+def test_require_hits_contribute_to_the_score():
+    criteria = Criteria(require=("junior",))
+    assert criteria.score(posting(title="Junior Developer")) > criteria.score(
+        posting(description="junior")
+    )
+
+
+def test_a_term_in_both_groups_is_not_counted_twice():
+    criteria = Criteria(keywords=("python",), require=("python",))
+    assert criteria.score(posting(title="Python Developer")) == 3

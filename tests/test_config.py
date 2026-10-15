@@ -65,3 +65,11 @@ def test_saved_file_stays_human_editable(tmp_path):
     path = tmp_path / "config.json"
     save(Config(keywords=["python"]), path)
     assert '"keywords"' in path.read_text(encoding="utf-8")
+
+
+def test_require_round_trips_into_criteria(tmp_path):
+    path = tmp_path / "config.json"
+    save(Config(keywords=["engineer"], require=["junior", "graduate"]), path)
+    criteria = load(path).criteria()
+    assert criteria.require == ("junior", "graduate")
+    assert criteria.keywords == ("engineer",)

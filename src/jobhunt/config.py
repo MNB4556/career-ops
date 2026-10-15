@@ -22,6 +22,7 @@ class Config:
     """Saved search settings used when the command line does not override them."""
 
     keywords: list[str] = field(default_factory=list)
+    require: list[str] = field(default_factory=list)
     exclude: list[str] = field(default_factory=list)
     locations: list[str] = field(default_factory=list)
     remote_only: bool = False
@@ -32,6 +33,7 @@ class Config:
         """Return these settings as filter :class:`Criteria`."""
         return Criteria(
             keywords=tuple(self.keywords),
+            require=tuple(self.require),
             exclude=tuple(self.exclude),
             locations=tuple(self.locations),
             remote_only=self.remote_only,
@@ -41,6 +43,7 @@ class Config:
         """Return a JSON-serialisable view of these settings."""
         return {
             "keywords": list(self.keywords),
+            "require": list(self.require),
             "exclude": list(self.exclude),
             "locations": list(self.locations),
             "remote_only": self.remote_only,

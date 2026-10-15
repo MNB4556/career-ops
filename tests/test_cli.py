@@ -254,6 +254,73 @@ def test_fetch_and_matches_agree_on_tie_order(tmp_path, capsys):
     assert fetched_first == stored_first
 
 
+def test_fetch_requires_are_anded_with_keywords(tmp_path, capsys):
+    """--keyword picks the field; --require picks the level; both must hold."""
+    payload = {
+        "jobs": [
+            {
+                "id": 1,
+                "title": "Junior Software Engineer",
+                "company_name": "Acme",
+                "candidate_required_location": "London",
+                "description": "<p>graduate scheme</p>",
+            },
+            {
+                "id": 2,
+                "title": "Senior Software Engineer",
+                "company_name": "Beta",
+                "candidate_required_location": "London",
+                "description": "<p>ten years</p>",
+            },
+            {
+                "id": 3,
+                "title": "Junior Sales Executive",
+                "company_name": "Gamma",
+                "candidate_required_location": "London",
+                "description": "<p>sales</p>",
+            },
+        ]
+    }
+    path = tmp_path / "level.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    code = main(
+        [
+            "--db",
+            str(tmp_path / "level.db"),
+            "--config",
+            str(tmp_path / "level-cfg.json"),
+            "fetch",
+            "--from-file",
+            str(path),
+            "--source",
+            "remotive",
+            "--keyword",
+            "engineer",
+            "--require",
+            "junior",
+        ]
+    )
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "1 new match" in out
+    assert "Junior Software Engineer" in out
+    assert "Senior Software Engineer" not in out
+    assert "Junior Sales Executive" not in out
+
+
+def test_criteria_persists_require(tmp_path, capsys):
+    config = str(tmp_path / "config.json")
+    assert (
+        main(["--config", config, "criteria", "--keywords", "engineer", "--require", "junior"]) == 0
+    )
+    capsys.readouterr()
+
+    assert main(["--config", config, "criteria"]) == 0
+    saved = json.loads(capsys.readouterr().out)
+    assert saved["require"] == ["junior"]
+
+
 def test_save_missing_posting_returns_error(tmp_path, capsys):
     _payload, db, config = _fixture(tmp_path)
     assert main(["--db", db, "--config", config, "save", "99"]) == 1
