@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -60,3 +61,60 @@ class Application:
     def is_closed(self) -> bool:
         """Whether this application is no longer in play."""
         return self.status in CLOSED_STATUSES
+
+
+def normalise(value: str) -> str:
+    """Collapse whitespace and casefold *value* so comparisons are stable."""
+    return re.sub(r"\s+", " ", value).strip().casefold()
+
+
+@dataclass
+class Posting:
+    """A job advert discovered on an external board.
+
+    Postings are candidates, not applications: they arrive from a board, get
+    filtered against your criteria, and only become an :class:`Application`
+    when you decide to act on one.
+    """
+
+    source: str
+    title: str
+    company: str
+    external_id: str | None = None
+    url: str | None = None
+    location: str | None = None
+    remote: bool = False
+    salary: str | None = None
+    tags: tuple[str, ...] = ()
+    posted_at: str | None = None
+    description: str | None = None
+    id: int | None = None
+    first_seen: str | None = None
+    last_seen: str | None = None
+
+    def __post_init__(self) -> None:
+        self.source = self.source.strip().lower()
+        self.title = self.title.strip()
+        self.company = self.company.strip()
+        if not self.source:
+            raise ValueError("source must not be empty")
+        if not self.title:
+            raise ValueError("title must not be empty")
+        if not self.company:
+            raise ValueError("company must not be empty")
+        self.tags = tuple(tag.strip() for tag in self.tags if tag and tag.strip())
+
+    @property
+    def key(self) -> str:
+        """A stable identifier, unique within a source."""
+        unique = self.external_id or self.url or f"{self.company}|{self.title}"
+        return f"{self.source}:{unique}"
+
+    @property
+    def signature(self) -> str:
+        """A content fingerprint used to spot one role across several boards."""
+        return f"{normalise(self.company)}|{normalise(self.title)}"
+
+    def to_application(self) -> Application:
+        """Promote this posting into a saved application."""
+        return Application(company=self.company, role=self.title, url=self.url, source=self.source)

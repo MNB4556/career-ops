@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from jobhunt.models import Application
+from jobhunt.models import Application, Posting
 from jobhunt.storage import Store
 
 
@@ -74,3 +74,60 @@ def test_invalid_status_is_rejected():
 def test_blank_company_is_rejected():
     with pytest.raises(ValueError):
         Application(company="   ", role="Dev")
+
+
+def test_upsert_posting_inserts_once(store):
+    posting = Posting(source="remotive", title="Dev", company="Acme", external_id="1")
+    stored, is_new = store.upsert_posting(posting)
+    assert is_new is True
+    assert stored.id == 1
+
+    again, is_new_again = store.upsert_posting(posting)
+    assert is_new_again is False
+    assert again.id == stored.id
+    assert store.count_postings() == 1
+
+
+def test_upsert_posting_dedupes_the_same_role_across_sources(store):
+    first = Posting(source="remotive", title="Backend Engineer", company="Acme", external_id="1")
+    second = Posting(source="remoteok", title="backend engineer", company="Acme ", external_id="9")
+    assert store.upsert_posting(first)[1] is True
+    assert store.upsert_posting(second)[1] is False
+    assert store.count_postings() == 1
+
+
+def test_posting_round_trip_preserves_every_field(store):
+    posting = Posting(
+        source="arbeitnow",
+        title="Dev",
+        company="Beta",
+        external_id="x",
+        url="https://example.com/1",
+        location="Berlin",
+        remote=True,
+        salary="1-2",
+        tags=("a", "b"),
+        posted_at="2026-01-01T00:00:00+00:00",
+        description="desc",
+    )
+    stored, _ = store.upsert_posting(posting)
+    reloaded = store.get_posting(stored.id)
+    assert reloaded == stored
+    assert reloaded.key == posting.key
+
+
+def test_list_postings_is_newest_first(store):
+    first = store.upsert_posting(Posting(source="s", title="A", company="Co", external_id="1"))[0]
+    second = store.upsert_posting(Posting(source="s", title="B", company="Co", external_id="2"))[0]
+    assert [item.id for item in store.list_postings()] == [second.id, first.id]
+
+
+def test_list_postings_filters_by_source_and_limit(store):
+    store.upsert_posting(Posting(source="a", title="One", company="Co", external_id="1"))
+    store.upsert_posting(Posting(source="b", title="Two", company="Co", external_id="2"))
+    assert len(store.list_postings(source="a")) == 1
+    assert len(store.list_postings(limit=1)) == 1
+
+
+def test_get_posting_missing_returns_none(store):
+    assert store.get_posting(500) is None

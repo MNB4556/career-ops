@@ -4,13 +4,13 @@ build-backend = "hatchling.build"
 
 [project]
 name = "job-hunt"
-version = "0.1.0"
-description = "A small, local-first job-application tracker."
+version = "0.2.0"
+description = "A small, local-first job-application tracker with free job-board search."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [{ name = "MNB4556" }]
-keywords = ["jobs", "career", "tracker", "cli", "sqlite"]
+keywords = ["jobs", "career", "tracker", "cli", "sqlite", "job-search"]
 classifiers = [
   "Programming Language :: Python :: 3",
   "License :: OSI Approved :: MIT License",
