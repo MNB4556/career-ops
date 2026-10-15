@@ -1,8 +1,10 @@
-"""Fetchers for free, keyless job boards.
+"""Fetchers for free job boards.
 
-Each board exposes a public JSON endpoint that needs no API key and no
-account, which keeps the whole search free and means nothing about you is
-sent anywhere to *read* jobs.
+Four of the five boards expose a public JSON endpoint that needs no API key
+and no account, which keeps the search free and means nothing about you is
+sent anywhere to *read* jobs. Adzuna - the one UK-native source, and the only
+one carrying stated GBP salaries - needs a free key (see
+:mod:`jobhunt.credentials`).
 
 Every parser takes an already-decoded JSON payload and returns
 :class:`~jobhunt.models.Posting` objects. Fetching and parsing are kept
@@ -16,15 +18,18 @@ import json
 import re
 import urllib.error
 import urllib.request
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Any
+from urllib.parse import urlencode
 
+from jobhunt.credentials import AdzunaCredentials, load_adzuna, redact
 from jobhunt.models import Posting
 
 USER_AGENT = "jobhunt/0.1 (+https://github.com/MNB4556/job-hunt)"
 TIMEOUT_SECONDS = 20
 
-SOURCES: tuple[str, ...] = ("remotive", "arbeitnow", "remoteok", "hn")
+SOURCES: tuple[str, ...] = ("adzuna", "remotive", "arbeitnow", "remoteok", "hn")
 
 REMOTIVE_URL = "https://remotive.com/api/remote-jobs?limit={limit}"
 ARBEITNOW_URL = "https://www.arbeitnow.com/api/job-board-api"
@@ -33,6 +38,9 @@ HN_SEARCH_URL = (
     "https://hn.algolia.com/api/v1/search_by_date?tags=story,author_whoishiring&hitsPerPage=10"
 )
 HN_ITEM_URL = "https://hn.algolia.com/api/v1/items/{item_id}"
+# Adzuna is UK-only here: the "gb" market is where this is aimed.
+ADZUNA_SEARCH_URL = "https://api.adzuna.com/v1/api/jobs/gb/search/{page}"
+ADZUNA_RESULTS_PER_PAGE = 50
 
 _TAG_RE = re.compile(r"<[^>]+>")
 _WHITESPACE_RE = re.compile(r"\s+")
@@ -59,7 +67,7 @@ def _get_json(url: str) -> Any:
         with urllib.request.urlopen(request, timeout=TIMEOUT_SECONDS) as response:
             return json.loads(response.read().decode("utf-8", errors="replace"))
     except (urllib.error.URLError, TimeoutError, ValueError) as exc:
-        raise SourceError(f"could not fetch {url}: {exc}") from exc
+        raise SourceError(f"could not fetch {redact(url)}: {exc}") from exc
 
 
 def strip_html(markup: str | None) -> str:
@@ -93,6 +101,17 @@ def _salary_text(low: Any, high: Any) -> str | None:
         return f"{int(minimum)}+"
     if maximum:
         return f"up to {int(maximum)}"
+    return None
+
+
+def _int_or_none(value: Any) -> int | None:
+    """Coerce a board's salary field to a positive int, or ``None``."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)) and value > 0:
+        return int(value)
+    if isinstance(value, str) and value.strip().isdigit():
+        return int(value.strip())
     return None
 
 
@@ -161,6 +180,8 @@ def parse_remoteok(payload: list[Any]) -> list[Posting]:
         company = (item.get("company") or "").strip()
         if not title or not company:
             continue
+        salary_min = _int_or_none(item.get("salary_min"))
+        salary_max = _int_or_none(item.get("salary_max"))
         postings.append(
             Posting(
                 source="remoteok",
@@ -170,9 +191,105 @@ def parse_remoteok(payload: list[Any]) -> list[Posting]:
                 url=item.get("url") or item.get("apply_url"),
                 location=(item.get("location") or "").strip() or None,
                 remote=True,  # Remote OK only lists remote roles
-                salary=_salary_text(item.get("salary_min"), item.get("salary_max")),
+                salary=_salary_text(salary_min, salary_max),
+                salary_min=salary_min,
+                salary_max=salary_max,
+                salary_currency="USD" if (salary_min or salary_max) else None,
                 tags=tuple(item.get("tags") or ()),
                 posted_at=item.get("date"),
+                description=strip_html(item.get("description")),
+            )
+        )
+    return postings
+
+
+def _adzuna_salary(item: dict[str, Any]) -> tuple[int | None, int | None, str | None]:
+    """Return Adzuna's *stated* (minimum, maximum, currency).
+
+    Adzuna estimates a salary for many ads. An estimate is not a stated
+    figure, so predicted salaries are dropped rather than passed off as one.
+    """
+    if item.get("salary_is_predicted") in (1, "1", True):
+        return None, None, None
+    low = _int_or_none(item.get("salary_min"))
+    high = _int_or_none(item.get("salary_max"))
+    if low is None and high is None:
+        return None, None, None
+    return low, high, "GBP"
+
+
+def _gbp_salary(low: int | None, high: int | None) -> str | None:
+    """Render a stated GBP range for display, or ``None``."""
+    if low and high and low == high:
+        return f"£{low:,}"
+    if low and high:
+        return f"£{low:,}-£{high:,}"
+    if low:
+        return f"£{low:,}+"
+    if high:
+        return f"up to £{high:,}"
+    return None
+
+
+def _adzuna_location(item: dict[str, Any]) -> str | None:
+    """Return the most specific location Adzuna offers for *item*."""
+    location = item.get("location")
+    if not isinstance(location, dict):
+        return None
+    display = (location.get("display_name") or "").strip()
+    if display:
+        return display
+    areas = [str(area).strip() for area in location.get("area") or () if str(area).strip()]
+    return ", ".join(areas) or None
+
+
+def _adzuna_tags(item: dict[str, Any]) -> tuple[str, ...]:
+    """Collect Adzuna's category and contract fields as tags."""
+    tags: list[str] = []
+    category = item.get("category")
+    if isinstance(category, dict):
+        for key in ("label", "tag"):
+            value = category.get(key)
+            if value:
+                tags.append(str(value))
+    for key in ("contract_time", "contract_type"):
+        if item.get(key):
+            tags.append(str(item[key]))
+    return tuple(tags)
+
+
+def parse_adzuna(payload: dict[str, Any]) -> list[Posting]:
+    """Parse an Adzuna ``/v1/api/jobs/gb/search`` response."""
+    postings = []
+    for item in payload.get("results") or ():
+        if not isinstance(item, dict):
+            continue
+        title = (item.get("title") or "").strip()
+        company_field = item.get("company")
+        company = (
+            (company_field.get("display_name") or "").strip()
+            if isinstance(company_field, dict)
+            else ""
+        )
+        if not title or not company:
+            continue
+        location = _adzuna_location(item)
+        salary_min, salary_max, salary_currency = _adzuna_salary(item)
+        postings.append(
+            Posting(
+                source="adzuna",
+                external_id=str(item.get("id") or "") or None,
+                title=title,
+                company=company,
+                url=item.get("redirect_url"),
+                location=location,
+                remote=bool(re.search(r"\bremote\b", f"{title} {location or ''}", re.IGNORECASE)),
+                salary=_gbp_salary(salary_min, salary_max),
+                salary_min=salary_min,
+                salary_max=salary_max,
+                salary_currency=salary_currency,
+                tags=_adzuna_tags(item),
+                posted_at=item.get("created"),
                 description=strip_html(item.get("description")),
             )
         )
@@ -229,6 +346,7 @@ def parse_hn(payload: dict[str, Any]) -> list[Posting]:
 
 
 PARSERS = {
+    "adzuna": parse_adzuna,
     "remotive": parse_remotive,
     "arbeitnow": parse_arbeitnow,
     "remoteok": parse_remoteok,
@@ -279,6 +397,57 @@ FETCHERS = {
 }
 
 
+def _adzuna_url(
+    credentials: AdzunaCredentials, *, query: str | None, limit: int, page: int = 1
+) -> str:
+    """Build one Adzuna search URL.
+
+    The result embeds the API key, so anything that logs it must first pass it
+    through :func:`jobhunt.credentials.redact`.
+    """
+    params: dict[str, Any] = {
+        "app_id": credentials.app_id,
+        "app_key": credentials.app_key,
+        "results_per_page": max(1, min(ADZUNA_RESULTS_PER_PAGE, limit)),
+    }
+    if query:
+        params["what"] = query
+    else:
+        # No query given: stay in the IT category rather than paging through
+        # the whole UK market.
+        params["category"] = "it-jobs"
+    return f"{ADZUNA_SEARCH_URL.format(page=page)}?{urlencode(params)}"
+
+
+def fetch_adzuna(limit: int = 50, queries: Sequence[str] = ()) -> list[Posting]:
+    """Fetch and parse Adzuna (UK) postings, one request per query.
+
+    *limit* applies per query rather than to the combined result: truncating
+    the union would let the first query crowd out the rest. Requests stay few
+    regardless - the free tier allows 250 calls a day, and a daily digest built
+    from a handful of targeted queries sits well inside that.
+    """
+    credentials = load_adzuna()
+    if credentials is None:
+        raise SourceError(
+            "no Adzuna credentials: set ADZUNA_APP_ID and ADZUNA_APP_KEY, or write "
+            "adzuna_app_id/adzuna_app_key to ~/.jobhunt/credentials.json"
+        )
+    wanted: tuple[str | None, ...] = tuple(
+        query.strip() for query in queries if query and query.strip()
+    ) or (None,)
+    postings: list[Posting] = []
+    seen: set[str] = set()
+    for query in wanted:
+        payload = _get_json(_adzuna_url(credentials, query=query, limit=limit))
+        for posting in parse_adzuna(payload):
+            if posting.key in seen:
+                continue
+            seen.add(posting.key)
+            postings.append(posting)
+    return postings
+
+
 def parse(source: str, payload: Any) -> list[Posting]:
     """Parse *payload* as if it came from *source*."""
     try:
@@ -290,8 +459,14 @@ def parse(source: str, payload: Any) -> list[Posting]:
     return parser(payload)
 
 
-def fetch(source: str, limit: int = 50) -> list[Posting]:
-    """Fetch postings from a single named *source*."""
+def fetch(source: str, limit: int = 50, queries: Sequence[str] = ()) -> list[Posting]:
+    """Fetch postings from a single named *source*.
+
+    *queries* applies only to Adzuna, which searches by phrase; every other
+    board is fetched in full and filtered locally.
+    """
+    if source == "adzuna":
+        return fetch_adzuna(limit, queries)
     try:
         fetcher = FETCHERS[source]
     except KeyError:

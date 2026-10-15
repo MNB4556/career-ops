@@ -34,6 +34,9 @@ CREATE TABLE IF NOT EXISTS postings (
     location    TEXT,
     remote      INTEGER NOT NULL DEFAULT 0,
     salary      TEXT,
+    salary_min  INTEGER,
+    salary_max  INTEGER,
+    salary_currency TEXT,
     tags        TEXT NOT NULL DEFAULT '[]',
     posted_at   TEXT,
     description TEXT,
@@ -43,6 +46,14 @@ CREATE TABLE IF NOT EXISTS postings (
 CREATE INDEX IF NOT EXISTS idx_postings_signature ON postings(signature);
 CREATE INDEX IF NOT EXISTS idx_postings_source ON postings(source);
 """
+
+# Columns added after the first release. Existing databases are upgraded in
+# place rather than being thrown away.
+_POSTING_COLUMNS = (
+    ("salary_min", "INTEGER"),
+    ("salary_max", "INTEGER"),
+    ("salary_currency", "TEXT"),
+)
 
 _COLUMNS = (
     "id",
@@ -73,6 +84,7 @@ class Store:
         self._conn = sqlite3.connect(self.path)
         self._conn.row_factory = sqlite3.Row
         self._conn.executescript(SCHEMA)
+        self._migrate()
         self._conn.commit()
 
     def __enter__(self) -> Store:
@@ -84,6 +96,17 @@ class Store:
     def close(self) -> None:
         """Close the underlying database connection."""
         self._conn.close()
+
+    def _migrate(self) -> None:
+        """Add any posting columns introduced after this database was created."""
+        existing = {
+            row["name"] for row in self._conn.execute("PRAGMA table_info(postings)").fetchall()
+        }
+        for column, kind in _POSTING_COLUMNS:
+            if column not in existing:
+                self._conn.execute(
+                    f"ALTER TABLE postings ADD COLUMN {column} {kind}"  # noqa: S608
+                )
 
     @staticmethod
     def _to_application(row: sqlite3.Row) -> Application:
@@ -184,6 +207,9 @@ class Store:
             location=row["location"],
             remote=bool(row["remote"]),
             salary=row["salary"],
+            salary_min=row["salary_min"],
+            salary_max=row["salary_max"],
+            salary_currency=row["salary_currency"],
             tags=tuple(json.loads(row["tags"] or "[]")),
             posted_at=row["posted_at"],
             description=row["description"],
@@ -218,8 +244,9 @@ class Store:
                 """
                 INSERT INTO postings
                     (key, signature, source, title, company, url, location, remote,
-                     salary, tags, posted_at, description, first_seen, last_seen)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     salary, salary_min, salary_max, salary_currency,
+                     tags, posted_at, description, first_seen, last_seen)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     posting.key,
@@ -231,6 +258,9 @@ class Store:
                     posting.location,
                     int(posting.remote),
                     posting.salary,
+                    posting.salary_min,
+                    posting.salary_max,
+                    posting.salary_currency,
                     json.dumps(list(posting.tags)),
                     posting.posted_at,
                     posting.description,

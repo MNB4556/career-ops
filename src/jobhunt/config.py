@@ -26,6 +26,10 @@ class Config:
     exclude: list[str] = field(default_factory=list)
     locations: list[str] = field(default_factory=list)
     remote_only: bool = False
+    salary_min: int | None = None
+    salary_max: int | None = None
+    salary_currency: str | None = "GBP"
+    adzuna_queries: list[str] = field(default_factory=list)
     sources: list[str] = field(default_factory=lambda: list(SOURCES))
     limit: int = 50
 
@@ -37,6 +41,9 @@ class Config:
             exclude=tuple(self.exclude),
             locations=tuple(self.locations),
             remote_only=self.remote_only,
+            salary_min=self.salary_min,
+            salary_max=self.salary_max,
+            salary_currency=self.salary_currency,
         )
 
     def to_dict(self) -> dict[str, object]:
@@ -47,6 +54,10 @@ class Config:
             "exclude": list(self.exclude),
             "locations": list(self.locations),
             "remote_only": self.remote_only,
+            "salary_min": self.salary_min,
+            "salary_max": self.salary_max,
+            "salary_currency": self.salary_currency,
+            "adzuna_queries": list(self.adzuna_queries),
             "sources": list(self.sources),
             "limit": self.limit,
         }

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import sqlite3
+
 import pytest
 
 from jobhunt.models import Application, Posting
@@ -131,3 +133,68 @@ def test_list_postings_filters_by_source_and_limit(store):
 
 def test_get_posting_missing_returns_none(store):
     assert store.get_posting(500) is None
+
+
+def test_posting_salary_round_trips(store):
+    stored, _ = store.upsert_posting(
+        Posting(
+            source="adzuna",
+            title="Dev",
+            company="Acme",
+            external_id="1",
+            salary="£29,000-£33,000",
+            salary_min=29000,
+            salary_max=33000,
+            salary_currency="GBP",
+        )
+    )
+    reloaded = store.get_posting(stored.id)
+    assert reloaded.salary == "£29,000-£33,000"
+    assert (reloaded.salary_min, reloaded.salary_max) == (29000, 33000)
+    assert reloaded.salary_currency == "GBP"
+
+
+def test_legacy_databases_gain_the_salary_columns(tmp_path):
+    """A database from before salaries were stored is upgraded, not discarded."""
+    path = tmp_path / "legacy.db"
+    legacy = sqlite3.connect(path)
+    legacy.executescript(
+        """
+        CREATE TABLE postings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            key TEXT NOT NULL UNIQUE,
+            signature TEXT NOT NULL,
+            source TEXT NOT NULL,
+            title TEXT NOT NULL,
+            company TEXT NOT NULL,
+            url TEXT,
+            location TEXT,
+            remote INTEGER NOT NULL DEFAULT 0,
+            salary TEXT,
+            tags TEXT NOT NULL DEFAULT '[]',
+            posted_at TEXT,
+            description TEXT,
+            first_seen TEXT NOT NULL,
+            last_seen TEXT NOT NULL
+        );
+        """
+    )
+    legacy.commit()
+    legacy.close()
+
+    with Store(path) as store:
+        stored, is_new = store.upsert_posting(
+            Posting(
+                source="adzuna",
+                title="Junior Dev",
+                company="Acme",
+                external_id="1",
+                salary_min=29000,
+                salary_max=33000,
+                salary_currency="GBP",
+            )
+        )
+
+    assert is_new is True
+    assert stored.salary_min == 29000
+    assert stored.salary_currency == "GBP"

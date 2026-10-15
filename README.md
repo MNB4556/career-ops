@@ -5,7 +5,8 @@
 A small, local-first job search tool. It finds adverts on free job boards,
 filters and ranks them against what you are actually looking for, and tracks
 what you applied to. Everything lives in a single SQLite file on your machine —
-no accounts, no server, no telemetry, no API keys.
+no server, no telemetry, no account. One source (Adzuna, the UK one) needs a
+free API key; the rest need nothing at all.
 
 ## Why
 
@@ -38,6 +39,9 @@ jobhunt criteria --keywords python backend --locations london --no-remote-only
 # both must be satisfied, so senior roles can't sneak in on "engineer" alone
 jobhunt fetch --keyword engineer --require junior --require graduate
 
+# Skip lowball adverts (0 clears a bound)
+jobhunt fetch --salary-min 29000 --salary-max 0
+
 # Search every board, show the best matches
 jobhunt fetch
 
@@ -67,17 +71,57 @@ Terms match **whole words**, not bare substrings, so `intern` will not drag in
 satisfied. That is what lets you ask for software roles *and* a junior level,
 instead of either term matching on its own.
 
+`--salary-min` / `--salary-max` only ever rule an advert out on a **stated**
+salary in the currency you have set (GBP by default). Adverts that stay silent
+about pay, or that pay in another currency, are kept: most junior roles never
+state a salary, and hiding them for that would be worse than showing them. In
+practice that makes a *floor* useful and a *ceiling* a good way to lose the best
+roles — London graduate schemes routinely pay £40k–£50k.
+
 ### Sources
 
 | Source | Coverage | Notes |
 | --- | --- | --- |
+| [Adzuna](https://developer.adzuna.com) | **UK**, including on-site | Stated GBP salaries. Needs a free key — see below |
 | [Remotive](https://remotive.com) | Remote, worldwide | Structured, reliable |
 | [Arbeitnow](https://www.arbeitnow.com) | Mostly Germany/EU | Structured, includes on-site |
 | [Remote OK](https://remoteok.com) | Remote, worldwide | Structured; [asks for attribution](https://remoteok.com/api) |
 | [Hacker News](https://news.ycombinator.com) | Tech, mostly US | Free text — see below |
 
-All four are public, keyless endpoints, which is why `job-hunt` needs no
-credentials to read them.
+Adzuna is the source that carries UK junior and graduate roles in volume. The
+others are global-remote or non-UK, and in practice return almost nothing for a
+UK entry-level search.
+
+### Adzuna setup
+
+Adzuna is free but needs an account. Register at
+[developer.adzuna.com](https://developer.adzuna.com), then put the two values
+somewhere **outside the repository**:
+
+```json
+{
+  "adzuna_app_id": "your-app-id",
+  "adzuna_app_key": "your-app-key"
+}
+```
+
+That is `~/.jobhunt/credentials.json`. `ADZUNA_APP_ID` and `ADZUNA_APP_KEY` in
+the environment work too, and win over the file. The key is never written to the
+repository and never printed: any URL carrying it is masked before it can reach
+a log or an error message.
+
+Adzuna is a search API rather than a listing dump, so you search it by phrase,
+one request per `--adzuna-query`:
+
+```bash
+jobhunt criteria --adzuna-queries "junior software engineer" "graduate software engineer"
+jobhunt fetch --source adzuna --top 10
+```
+
+It is UK-only (`gb`) by design. The free tier allows 250 calls a day and a daily
+digest uses a handful. Adzuna's terms require that it be credited wherever its
+data is published, so results it contributes are followed by a `Source: Adzuna`
+line — including in a digest sent to your phone.
 
 **Hacker News is best-effort.** Those postings are prose, not data, so the
 company and role are guessed from the first line of each comment, which
@@ -92,6 +136,10 @@ it safe to run on a schedule:
 ```bash
 jobhunt fetch --digest --top 5
 ```
+
+`--digest` reports what is **new** since the last run. On a quiet day, rather
+than saying "nothing new" and being ignored, it falls back to the best matches
+already stored and says so.
 
 ## Tracking applications
 
@@ -124,14 +172,20 @@ file with `--config path/to/config.json`.
 
 ## Privacy
 
-Your database defaults to `~/.jobhunt/jobhunt.db` and your settings to
-`~/.jobhunt/config.json`. Both are **gitignored**, and both stay on your
-machine.
+Your database defaults to `~/.jobhunt/jobhunt.db`, your settings to
+`~/.jobhunt/config.json`, and any API key to `~/.jobhunt/credentials.json`. All
+three are **gitignored** and stay on your machine.
 
 Searching downloads each board's public listing with a plain HTTP request and
-does the filtering locally, so **your keywords never leave your machine** — the
-boards never learn what you are looking for. The only thing sent is an
-identifying `User-Agent` header.
+filters locally. For the four keyless boards that means **your keywords never
+leave your machine** — they never learn what you are looking for, and the only
+thing sent is an identifying `User-Agent` header.
+
+**Adzuna is the exception.** It is a search API rather than a listing dump, so
+the phrases you pass to `--adzuna-queries` are sent to Adzuna as the search
+term, along with your app id. Keep those phrases generic ("graduate software
+engineer"); your locations, salary band, and exclusions are still applied
+locally and are never sent.
 
 Your applications, notes, and anything you put in them are never sent anywhere:
 `job-hunt` has no account to sync to and no code that phones home.
