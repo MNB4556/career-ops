@@ -1,16 +1,44 @@
 """Filtering and ranking of discovered postings.
 
-The rules are deliberately simple and explainable: keywords must all be
-satisfiable by a single posting (any one match is enough), exclusions veto a
-posting outright, and scoring only ever promotes a posting the filters already
-accepted.
+Terms match whole words rather than bare substrings, so ``intern`` does not
+match ``internal``, and ``uk`` does not match ``Ukraine``. Common inflections
+are still accepted, so ``engineer`` matches ``engineers`` and ``engineering``,
+and ``intern`` matches ``interns`` and ``internship``.
+
+``keywords`` and ``require`` are separate OR-groups and *both* must be
+satisfied, which is what lets a search ask for "software roles **and** a junior
+level" while rejecting a senior role that only matches the first group.
 """
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
+from functools import lru_cache
 
 from jobhunt.models import Posting, normalise
+
+# Trailing forms that should still count as the same term.
+_INFLECTIONS = ("s", "es", "ed", "ing", "ship", "ships")
+
+_NEVER = re.compile(r"(?!)")
+
+
+@lru_cache(maxsize=1024)
+def _term_pattern(term: str) -> re.Pattern[str]:
+    """Compile *term* into a whole-word pattern that tolerates inflections."""
+    core = normalise(term)
+    if not core:
+        return _NEVER
+    lead = r"\b" if re.match(r"\w", core) else ""
+    tail = r"\b" if re.search(r"\w$", core) else ""
+    suffixes = "|".join(_INFLECTIONS)
+    return re.compile(rf"{lead}{re.escape(core)}(?:{suffixes})?{tail}")
+
+
+def _contains(terms: tuple[str, ...], text: str) -> bool:
+    """Whether any of *terms* appears in *text* on a word boundary."""
+    return any(_term_pattern(term).search(text) for term in terms)
 
 
 @dataclass(frozen=True)
@@ -18,20 +46,20 @@ class Criteria:
     """What you are looking for. An empty field means "no constraint"."""
 
     keywords: tuple[str, ...] = ()
+    require: tuple[str, ...] = ()
     exclude: tuple[str, ...] = ()
     locations: tuple[str, ...] = ()
     remote_only: bool = False
 
     def __post_init__(self) -> None:
-        object.__setattr__(
-            self, "keywords", tuple(word for word in self.keywords if word and word.strip())
-        )
-        object.__setattr__(
-            self, "exclude", tuple(word for word in self.exclude if word and word.strip())
-        )
-        object.__setattr__(
-            self, "locations", tuple(word for word in self.locations if word and word.strip())
-        )
+        for field in ("keywords", "require", "exclude", "locations"):
+            object.__setattr__(
+                self, field, tuple(word for word in getattr(self, field) if word and word.strip())
+            )
+
+    def _scoring_terms(self) -> tuple[str, ...]:
+        """Every positive term, de-duplicated but order-preserving."""
+        return tuple(dict.fromkeys((*self.keywords, *self.require)))
 
     def _searchable(self, posting: Posting) -> str:
         """Everything about *posting* that plain keyword matching may look at."""
@@ -46,20 +74,22 @@ class Criteria:
     def matches(self, posting: Posting) -> bool:
         """Whether *posting* survives every configured constraint."""
         searchable = self._searchable(posting)
-        if any(normalise(term) in searchable for term in self.exclude):
+        if _contains(self.exclude, searchable):
             return False
         if self.remote_only and not posting.remote:
             return False
         if self.locations:
             location = normalise(posting.location or "")
             if location:
-                if not any(normalise(term) in location for term in self.locations):
+                if not _contains(self.locations, location):
                     return False
             elif not posting.remote:
                 # No stated location on an on-site role: not worth guessing at.
                 return False
-        if self.keywords:
-            return any(normalise(term) in searchable for term in self.keywords)
+        if self.keywords and not _contains(self.keywords, searchable):
+            return False
+        if self.require:
+            return _contains(self.require, searchable)
         return True
 
     def score(self, posting: Posting) -> int:
@@ -67,14 +97,14 @@ class Criteria:
         title = normalise(posting.title)
         searchable = self._searchable(posting)
         score = 0
-        for keyword in self.keywords:
-            term = normalise(keyword)
-            if term in title:
+        for term in self._scoring_terms():
+            pattern = _term_pattern(term)
+            if pattern.search(title):
                 score += 3
-            elif term in searchable:
+            elif pattern.search(searchable):
                 score += 1
         location = normalise(posting.location or "")
-        score += sum(1 for term in self.locations if normalise(term) in location)
+        score += sum(1 for term in self.locations if _term_pattern(term).search(location))
         if posting.remote:
             score += 1
         return score

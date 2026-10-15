@@ -34,6 +34,10 @@ Tell it what you want once, then ask it to search:
 # What am I looking for?
 jobhunt criteria --keywords python backend --locations london --no-remote-only
 
+# Pick a field AND a level: keywords and require are separate groups and
+# both must be satisfied, so senior roles can't sneak in on "engineer" alone
+jobhunt fetch --keyword engineer --require junior --require graduate
+
 # Search every board, show the best matches
 jobhunt fetch
 
@@ -53,6 +57,15 @@ autopilot, and the link in each result is authoritative.
 
 Criteria are saved to `~/.jobhunt/config.json`, so an unattended run needs no
 flags at all. Any flag you pass overrides the saved value for that run only.
+
+Terms match **whole words**, not bare substrings, so `intern` will not drag in
+`internal` and `uk` will not match `Ukraine`. Common inflections still count:
+`engineer` matches `engineers` and `engineering`, and `intern` matches
+`internship`.
+
+`--keyword` and `--require` are separate OR-groups, and **both** must be
+satisfied. That is what lets you ask for software roles *and* a junior level,
+instead of either term matching on its own.
 
 ### Sources
 

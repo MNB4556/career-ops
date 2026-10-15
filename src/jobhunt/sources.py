@@ -40,6 +40,12 @@ _WHITESPACE_RE = re.compile(r"\s+")
 # dashes. Splitting on these separators recovers the useful fields.
 _HN_SEPARATOR_RE = re.compile(r"\s*(?:\||\u2014|\u2013|\u00b7|\s-\s)\s*")
 _HN_LOCATION_RE = re.compile(r"\(([^()]{2,60})\)")
+# Posters sprinkle links through the header line, which otherwise end up as
+# company or job titles.
+_URL_RE = re.compile(
+    r"https?://\S+|\bwww\.\S+|\b[\w-]+\.(?:com|io|dev|tech|org|net|ai|co|uk|app|xyz)\b\S*",
+    re.IGNORECASE,
+)
 
 
 class SourceError(RuntimeError):
@@ -70,6 +76,11 @@ def _iso_from_epoch(value: Any) -> str | None:
     if not isinstance(value, (int, float)) or value <= 0:
         return None
     return datetime.fromtimestamp(value, tz=UTC).replace(microsecond=0).isoformat()
+
+
+def _strip_urls(text: str) -> str:
+    """Remove links, which posters sprinkle through HN header lines."""
+    return _WHITESPACE_RE.sub(" ", _URL_RE.sub(" ", text)).strip(" ,-|")
 
 
 def _salary_text(low: Any, high: Any) -> str | None:
@@ -187,7 +198,8 @@ def parse_hn(payload: dict[str, Any]) -> list[Posting]:
         head = _WHITESPACE_RE.sub(" ", strip_html(raw.split("<p>", 1)[0]))
         if not head:
             continue
-        segments = [segment.strip() for segment in _HN_SEPARATOR_RE.split(head) if segment.strip()]
+        segments = [_strip_urls(segment) for segment in _HN_SEPARATOR_RE.split(head)]
+        segments = [segment for segment in segments if segment]
         if len(segments) < 2:
             continue
         first = segments[0]
