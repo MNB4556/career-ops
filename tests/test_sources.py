@@ -11,6 +11,7 @@ from jobhunt.sources import (
     SOURCES,
     SourceError,
     parse,
+    parse_adzuna,
     parse_arbeitnow,
     parse_hn,
     parse_remoteok,
@@ -167,3 +168,52 @@ def test_parse_hn_strips_links_out_of_company_and_role():
     (posting,) = parse_hn(payload)
     assert posting.company == "Acme"
     assert posting.title == "Backend Engineer"
+
+
+ADZUNA_RESULT: dict[str, Any] = {
+    "id": "5478654321",
+    "title": "Junior Software Engineer",
+    "company": {"display_name": "Acme Ltd"},
+    "location": {"display_name": "London, UK", "area": ["UK", "London"]},
+    "redirect_url": "https://www.adzuna.co.uk/jobs/land/ad/5478654321",
+    "salary_min": 29000,
+    "salary_max": 33000,
+    "salary_is_predicted": 0,
+    "category": {"label": "IT Jobs", "tag": "it-jobs"},
+    "contract_time": "full_time",
+    "created": "2026-10-14T09:00:00Z",
+    "description": "<p>Graduate scheme in <b>Python</b></p>",
+}
+
+
+def test_parse_adzuna_reads_the_stated_salary():
+    (posting,) = parse_adzuna({"results": [ADZUNA_RESULT]})
+    assert posting.source == "adzuna"
+    assert posting.title == "Junior Software Engineer"
+    assert posting.company == "Acme Ltd"
+    assert posting.location == "London, UK"
+    assert posting.salary == "£29,000-£33,000"
+    assert (posting.salary_min, posting.salary_max) == (29000, 33000)
+    assert posting.salary_currency == "GBP"
+    assert "it-jobs" in posting.tags
+    assert posting.description == "Graduate scheme in Python"
+
+
+def test_parse_adzuna_drops_predicted_salaries():
+    """A predicted figure is a guess, not a stated salary."""
+    (posting,) = parse_adzuna({"results": [dict(ADZUNA_RESULT, salary_is_predicted=1)]})
+    assert posting.salary is None
+    assert posting.salary_min is None
+    assert posting.salary_max is None
+    assert posting.salary_currency is None
+
+
+def test_parse_adzuna_falls_back_to_the_area_list():
+    payload = {"results": [dict(ADZUNA_RESULT, location={"area": ["UK", "London"]})]}
+    (posting,) = parse_adzuna(payload)
+    assert posting.location == "UK, London"
+
+
+def test_parse_adzuna_needs_a_company():
+    payload = {"results": [{"id": "1", "title": "Ghost Job"}]}
+    assert parse_adzuna(payload) == []

@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from collections.abc import Iterable
 from pathlib import Path
 
 from jobhunt import __version__
@@ -18,6 +19,10 @@ from jobhunt.sources import SOURCES, SourceError
 from jobhunt.storage import Store
 
 DEFAULT_DB = Path.home() / ".jobhunt" / "jobhunt.db"
+
+# Adzuna's terms require it to be credited wherever its data is published, and
+# a digest pushed to a phone counts as published.
+ADZUNA_ATTRIBUTION = "Source: Adzuna (https://www.adzuna.co.uk/)"
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -70,6 +75,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     fetch.add_argument("--exclude", action="append", dest="exclude")
     fetch.add_argument("--location", action="append", dest="locations")
+    fetch.add_argument("--salary-min", type=int, dest="salary_min")
+    fetch.add_argument("--salary-max", type=int, dest="salary_max")
+    fetch.add_argument(
+        "--adzuna-query",
+        action="append",
+        dest="adzuna_queries",
+        help="phrase to search Adzuna for (repeatable); Adzuna is the UK source",
+    )
     fetch.add_argument("--remote-only", action="store_true", default=None)
     fetch.add_argument("--min-score", type=int, default=0, dest="min_score")
     fetch.add_argument(
@@ -96,6 +109,9 @@ def build_parser() -> argparse.ArgumentParser:
     criteria.add_argument("--require", nargs="*")
     criteria.add_argument("--exclude", nargs="*")
     criteria.add_argument("--locations", nargs="*")
+    criteria.add_argument("--salary-min", type=int, dest="salary_min", help="0 clears it")
+    criteria.add_argument("--salary-max", type=int, dest="salary_max", help="0 clears it")
+    criteria.add_argument("--adzuna-queries", nargs="*", dest="adzuna_queries")
     criteria.add_argument("--sources", nargs="*", choices=SOURCES)
     criteria.add_argument("--limit", type=int)
     remote = criteria.add_mutually_exclusive_group()
@@ -130,6 +146,9 @@ def _posting_as_dict(posting: Posting, score: int | None = None) -> dict[str, ob
         "location": posting.location,
         "remote": posting.remote,
         "salary": posting.salary,
+        "salary_min": posting.salary_min,
+        "salary_max": posting.salary_max,
+        "salary_currency": posting.salary_currency,
         "tags": list(posting.tags),
         "posted_at": posting.posted_at,
         "score": score,
@@ -143,12 +162,27 @@ def _print_posting(posting: Posting, *, tags: bool = True) -> None:
     print(f"{posting.id:>4}. {posting.title} - {posting.company}{suffix}")
     if posting.url:
         print(f"      {posting.url}")
+    if posting.salary:
+        print(f"      {posting.salary}")
     if tags and posting.tags:
         print(f"      {', '.join(posting.tags[:8])}")
 
 
+def _use_utf8_output() -> None:
+    """Write UTF-8 whatever the console codepage is.
+
+    A digest is piped to another process rather than shown on a console, and a
+    pipe would otherwise mangle the pound sign in "£29,000".
+    """
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            reconfigure(encoding="utf-8")
+
+
 def main(argv: list[str] | None = None) -> int:
     """Entry point. Returns a process exit code."""
+    _use_utf8_output()
     args = build_parser().parse_args(argv)
     if args.command == "criteria":
         return _cmd_criteria(None, args)
@@ -255,6 +289,9 @@ def _resolve_criteria(args: argparse.Namespace, config: Config) -> Criteria:
         exclude=tuple(args.exclude if args.exclude is not None else config.exclude),
         locations=tuple(args.locations if args.locations is not None else config.locations),
         remote_only=args.remote_only if args.remote_only is not None else config.remote_only,
+        salary_min=args.salary_min if args.salary_min is not None else config.salary_min,
+        salary_max=args.salary_max if args.salary_max is not None else config.salary_max,
+        salary_currency=config.salary_currency,
     )
 
 
@@ -270,6 +307,36 @@ def _ranked(postings: list[Posting], criteria: Criteria) -> list[tuple[Posting, 
     )
 
 
+def _credit_adzuna(sources: Iterable[str]) -> None:
+    """Print the credit Adzuna's terms require once its data is shown."""
+    if "adzuna" in sources:
+        print(f"\n{ADZUNA_ATTRIBUTION}")
+
+
+def _print_stored_fallback(store: Store, criteria: Criteria, args: argparse.Namespace) -> bool:
+    """Show the best stored matches when a digest has nothing new.
+
+    A daily digest that reads "nothing new" on every quiet day stops being
+    opened, so on those days it falls back to what is already known, and says
+    so rather than pretending it is fresh.
+    """
+    ranked = [
+        pair for pair in _ranked(store.list_postings(), criteria) if pair[1] >= args.min_score
+    ]
+    if not ranked:
+        return False
+    shown = ranked[: args.top]
+    print("Nothing new today. Best current matches:")
+    print()
+    for posting, _score in shown:
+        _print_posting(posting, tags=False)
+    if len(ranked) > len(shown):
+        print(f"\n... and {len(ranked) - len(shown)} more.")
+    _credit_adzuna({posting.source for posting, _ in shown})
+    print("\nSave one with: jobhunt save <id>")
+    return True
+
+
 def _cmd_fetch(store: Store, args: argparse.Namespace) -> int:
     try:
         config = load_config(args.config)
@@ -279,6 +346,7 @@ def _cmd_fetch(store: Store, args: argparse.Namespace) -> int:
     sources = args.sources or config.sources
     criteria = _resolve_criteria(args, config)
     limit = args.limit if args.limit is not None else config.limit
+    queries = args.adzuna_queries if args.adzuna_queries is not None else config.adzuna_queries
 
     if args.from_file:
         if len(sources) != 1:
@@ -295,7 +363,7 @@ def _cmd_fetch(store: Store, args: argparse.Namespace) -> int:
         failures = []
         for name in sources:
             try:
-                fetched.extend(source_module.fetch(name, limit))
+                fetched.extend(source_module.fetch(name, limit, queries))
             except (SourceError, ValueError) as exc:
                 failures.append(f"{name}: {exc}")
         for failure in failures:
@@ -337,6 +405,8 @@ def _cmd_fetch(store: Store, args: argparse.Namespace) -> int:
             f"{'es' if len(ranked) != 1 else ''}."
         )
     if not ranked:
+        if args.digest and _print_stored_fallback(store, criteria, args):
+            return 0
         print("Nothing matched your criteria this time.")
         return 0
     print()
@@ -344,6 +414,7 @@ def _cmd_fetch(store: Store, args: argparse.Namespace) -> int:
         _print_posting(posting, tags=not args.digest)
     if len(ranked) > len(shown):
         print(f"\n... and {len(ranked) - len(shown)} more (raise --top to see them).")
+    _credit_adzuna({posting.source for posting, _ in shown})
     print("\nSave one with: jobhunt save <id>")
     return 0
 
@@ -370,6 +441,7 @@ def _cmd_matches(store: Store, args: argparse.Namespace) -> int:
         print()
     for posting, _score in ranked:
         _print_posting(posting, tags=not args.digest)
+    _credit_adzuna({posting.source for posting, _ in ranked})
     print("\nSave one with: jobhunt save <id>")
     return 0
 
@@ -411,6 +483,16 @@ def _cmd_criteria(_store: Store | None, args: argparse.Namespace) -> int:
         changed = True
     if args.remote_only is not None:
         config.remote_only = args.remote_only
+        changed = True
+    # 0 clears a bound, so "--salary-max 0" means "no ceiling".
+    if args.salary_min is not None:
+        config.salary_min = args.salary_min or None
+        changed = True
+    if args.salary_max is not None:
+        config.salary_max = args.salary_max or None
+        changed = True
+    if args.adzuna_queries is not None:
+        config.adzuna_queries = args.adzuna_queries
         changed = True
     if changed:
         path = save_config(config, args.config)

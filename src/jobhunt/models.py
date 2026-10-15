@@ -85,6 +85,9 @@ class Posting:
     location: str | None = None
     remote: bool = False
     salary: str | None = None
+    salary_min: int | None = None
+    salary_max: int | None = None
+    salary_currency: str | None = None
     tags: tuple[str, ...] = ()
     posted_at: str | None = None
     description: str | None = None
@@ -102,6 +105,8 @@ class Posting:
             raise ValueError("title must not be empty")
         if not self.company:
             raise ValueError("company must not be empty")
+        if self.salary_currency:
+            self.salary_currency = self.salary_currency.strip().upper()
         self.tags = tuple(tag.strip() for tag in self.tags if tag and tag.strip())
 
     @property

@@ -50,12 +50,17 @@ class Criteria:
     exclude: tuple[str, ...] = ()
     locations: tuple[str, ...] = ()
     remote_only: bool = False
+    salary_min: int | None = None
+    salary_max: int | None = None
+    salary_currency: str | None = None
 
     def __post_init__(self) -> None:
         for field in ("keywords", "require", "exclude", "locations"):
             object.__setattr__(
                 self, field, tuple(word for word in getattr(self, field) if word and word.strip())
             )
+        if self.salary_currency:
+            object.__setattr__(self, "salary_currency", self.salary_currency.strip().upper())
 
     def _scoring_terms(self) -> tuple[str, ...]:
         """Every positive term, de-duplicated but order-preserving."""
@@ -78,6 +83,8 @@ class Criteria:
             return False
         if self.remote_only and not posting.remote:
             return False
+        if not self._salary_fits(posting):
+            return False
         if self.locations:
             location = normalise(posting.location or "")
             if location:
@@ -91,6 +98,32 @@ class Criteria:
         if self.require:
             return _contains(self.require, searchable)
         return True
+
+    def _salary_fits(self, posting: Posting) -> bool:
+        """Whether a *stated* salary overlaps the wanted band.
+
+        Adverts that are silent about pay, or that pay in a currency that
+        cannot be compared against, are kept: dropping a job because its advert
+        omits a salary would quietly discard most junior roles. Only a stated
+        figure in the same currency can rule an advert out.
+        """
+        if self.salary_min is None and self.salary_max is None:
+            return True
+        if posting.salary_min is None and posting.salary_max is None:
+            return True
+        if posting.salary_currency != self.salary_currency:
+            return True
+        if (
+            self.salary_min is not None
+            and posting.salary_max is not None
+            and posting.salary_max < self.salary_min
+        ):
+            return False
+        return not (
+            self.salary_max is not None
+            and posting.salary_min is not None
+            and posting.salary_min > self.salary_max
+        )
 
     def score(self, posting: Posting) -> int:
         """Rank an already-matching *posting*; a title hit is worth most."""

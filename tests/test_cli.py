@@ -350,3 +350,192 @@ def test_saved_criteria_are_applied_by_fetch(tmp_path, capsys):
     out = capsys.readouterr().out
     assert "1 new match" in out
     assert "Sales Lead" not in out
+
+
+def test_adzuna_results_are_credited(tmp_path, capsys):
+    """Adzuna's terms require the source be credited wherever data is shown."""
+    payload = {
+        "results": [
+            {
+                "id": "1",
+                "title": "Junior Software Engineer",
+                "company": {"display_name": "Acme"},
+                "location": {"display_name": "London, UK"},
+                "redirect_url": "https://www.adzuna.co.uk/jobs/land/ad/1",
+                "salary_min": 29000,
+                "salary_max": 33000,
+                "salary_is_predicted": 0,
+                "description": "<p>Graduate Python role</p>",
+            }
+        ]
+    }
+    path = tmp_path / "adzuna.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    code = main(
+        [
+            "--db",
+            str(tmp_path / "adzuna.db"),
+            "--config",
+            str(tmp_path / "adzuna-cfg.json"),
+            "fetch",
+            "--from-file",
+            str(path),
+            "--source",
+            "adzuna",
+        ]
+    )
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "Junior Software Engineer" in out
+    assert "£29,000-£33,000" in out
+    assert "Source: Adzuna" in out
+
+
+def test_fetch_applies_the_salary_band(tmp_path, capsys):
+    """A stated salary outside the band is dropped; a silent advert is kept."""
+    payload = {
+        "results": [
+            {
+                "id": "1",
+                "title": "Junior Developer",
+                "company": {"display_name": "Acme"},
+                "location": {"display_name": "London, UK"},
+                "salary_min": 18000,
+                "salary_max": 20000,
+                "salary_is_predicted": 0,
+                "description": "<p>python</p>",
+            },
+            {
+                "id": "2",
+                "title": "Junior Developer",
+                "company": {"display_name": "MegaCorp"},
+                "location": {"display_name": "London, UK"},
+                "salary_min": 30000,
+                "salary_max": 32000,
+                "salary_is_predicted": 0,
+                "description": "<p>python</p>",
+            },
+            {
+                "id": "3",
+                "title": "Junior Developer",
+                "company": {"display_name": "Silent Ltd"},
+                "location": {"display_name": "London, UK"},
+                "description": "<p>python</p>",
+            },
+        ]
+    }
+    path = tmp_path / "adzuna-salary.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    code = main(
+        [
+            "--db",
+            str(tmp_path / "salary.db"),
+            "--config",
+            str(tmp_path / "salary-cfg.json"),
+            "fetch",
+            "--from-file",
+            str(path),
+            "--source",
+            "adzuna",
+            "--keyword",
+            "developer",
+            "--salary-min",
+            "29000",
+            "--salary-max",
+            "35000",
+        ]
+    )
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "2 new matches" in out
+    assert "MegaCorp" in out
+    assert "Silent Ltd" in out
+    assert "Acme" not in out
+
+
+def test_criteria_persists_the_salary_band(tmp_path, capsys):
+    config = str(tmp_path / "config.json")
+    assert (
+        main(
+            [
+                "--config",
+                config,
+                "criteria",
+                "--salary-min",
+                "29000",
+                "--salary-max",
+                "35000",
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()
+
+    assert main(["--config", config, "criteria"]) == 0
+    saved = json.loads(capsys.readouterr().out)
+    assert saved["salary_min"] == 29000
+    assert saved["salary_max"] == 35000
+    assert saved["salary_currency"] == "GBP"
+
+
+def test_salary_max_zero_clears_the_ceiling(tmp_path, capsys):
+    config = str(tmp_path / "config.json")
+    main(["--config", config, "criteria", "--salary-max", "35000"])
+    capsys.readouterr()
+
+    main(["--config", config, "criteria", "--salary-max", "0"])
+    capsys.readouterr()
+
+    assert main(["--config", config, "criteria"]) == 0
+    assert json.loads(capsys.readouterr().out)["salary_max"] is None
+
+
+def test_digest_falls_back_to_stored_matches(tmp_path, capsys):
+    """A quiet day still shows the best known matches rather than nothing."""
+    payload, db, config = _fixture(tmp_path)
+    args = [
+        "--db",
+        db,
+        "--config",
+        config,
+        "fetch",
+        "--from-file",
+        payload,
+        "--source",
+        "remotive",
+        "--keyword",
+        "python",
+    ]
+    main(args)
+    capsys.readouterr()
+
+    assert main([*args, "--digest", "--top", "5"]) == 0
+    out = capsys.readouterr().out
+    assert "Nothing new today" in out
+    assert "Python Developer" in out
+
+
+def test_matches_credits_adzuna_when_it_is_shown(tmp_path, capsys):
+    payload = {
+        "results": [
+            {
+                "id": "1",
+                "title": "Junior Developer",
+                "company": {"display_name": "Acme"},
+                "location": {"display_name": "London, UK"},
+                "description": "<p>python</p>",
+            }
+        ]
+    }
+    path = tmp_path / "credit.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    db = str(tmp_path / "credit.db")
+    config = str(tmp_path / "credit-cfg.json")
+
+    main(["--db", db, "--config", config, "fetch", "--from-file", str(path), "--source", "adzuna"])
+    capsys.readouterr()
+
+    assert main(["--db", db, "--config", config, "matches"]) == 0
+    assert "Source: Adzuna" in capsys.readouterr().out

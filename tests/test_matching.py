@@ -145,3 +145,36 @@ def test_require_hits_contribute_to_the_score():
 def test_a_term_in_both_groups_is_not_counted_twice():
     criteria = Criteria(keywords=("python",), require=("python",))
     assert criteria.score(posting(title="Python Developer")) == 3
+
+
+def test_salary_outside_the_band_is_dropped():
+    criteria = Criteria(salary_min=29000, salary_max=35000, salary_currency="GBP")
+    assert not criteria.matches(posting(salary_min=50000, salary_max=70000, salary_currency="GBP"))
+    assert not criteria.matches(posting(salary_min=18000, salary_max=22000, salary_currency="GBP"))
+
+
+def test_salary_overlapping_the_band_is_kept():
+    criteria = Criteria(salary_min=29000, salary_max=35000, salary_currency="GBP")
+    assert criteria.matches(posting(salary_min=28000, salary_max=40000, salary_currency="GBP"))
+    assert criteria.matches(posting(salary_min=31000, salary_max=31000, salary_currency="GBP"))
+
+
+def test_an_advert_with_no_salary_is_kept():
+    """Dropping silent adverts would quietly discard most junior roles."""
+    criteria = Criteria(salary_min=29000, salary_max=35000, salary_currency="GBP")
+    assert criteria.matches(posting())
+
+
+def test_a_salary_in_another_currency_is_kept():
+    criteria = Criteria(salary_min=29000, salary_max=35000, salary_currency="GBP")
+    assert criteria.matches(posting(salary_min=60000, salary_max=90000, salary_currency="USD"))
+
+
+def test_a_salary_on_the_boundary_is_kept():
+    criteria = Criteria(salary_min=29000, salary_currency="GBP")
+    assert criteria.matches(posting(salary_max=29000, salary_currency="GBP"))
+    assert not criteria.matches(posting(salary_max=28999, salary_currency="GBP"))
+
+
+def test_no_salary_criteria_ignores_salaries_entirely():
+    assert Criteria().matches(posting(salary_min=500000, salary_max=900000, salary_currency="GBP"))
