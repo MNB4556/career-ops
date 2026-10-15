@@ -43,3 +43,243 @@ def test_show_missing_returns_error_code(tmp_path, capsys):
 
 def test_remove_missing_returns_error_code(tmp_path):
     assert main(["--db", str(tmp_path / "gone.db"), "remove", "7"]) == 1
+
+
+REMOTIVE_FIXTURE = {
+    "jobs": [
+        {
+            "id": 1,
+            "title": "Python Developer",
+            "company_name": "Acme",
+            "tags": ["python"],
+            "candidate_required_location": "Worldwide",
+            "description": "<p>Write python</p>",
+            "url": "https://example.com/1",
+        },
+        {
+            "id": 2,
+            "title": "Sales Lead",
+            "company_name": "Beta",
+            "tags": ["sales"],
+            "candidate_required_location": "Worldwide",
+            "description": "<p>Sell things</p>",
+            "url": "https://example.com/2",
+        },
+    ]
+}
+
+
+def _fixture(tmp_path):
+    """Write the sample payload and return (payload_path, db_path, config_path)."""
+    payload = tmp_path / "payload.json"
+    payload.write_text(json.dumps(REMOTIVE_FIXTURE), encoding="utf-8")
+    return str(payload), str(tmp_path / "fetch.db"), str(tmp_path / "config.json")
+
+
+def test_fetch_from_file_reports_only_matches(tmp_path, capsys):
+    payload, db, config = _fixture(tmp_path)
+    code = main(
+        [
+            "--db",
+            db,
+            "--config",
+            config,
+            "fetch",
+            "--from-file",
+            payload,
+            "--source",
+            "remotive",
+            "--keyword",
+            "python",
+        ]
+    )
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "Python Developer" in out
+    assert "Sales Lead" not in out
+
+
+def test_fetch_from_file_persists_postings_for_later(tmp_path, capsys):
+    payload, db, config = _fixture(tmp_path)
+    main(["--db", db, "--config", config, "fetch", "--from-file", payload, "--source", "remotive"])
+    capsys.readouterr()
+
+    assert main(["--db", db, "--config", config, "matches", "--json"]) == 0
+    stored = json.loads(capsys.readouterr().out)
+    assert {item["title"] for item in stored} == {"Python Developer", "Sales Lead"}
+
+
+def test_fetch_json_reports_counts(tmp_path, capsys):
+    payload, db, config = _fixture(tmp_path)
+    main(
+        [
+            "--db",
+            db,
+            "--config",
+            config,
+            "fetch",
+            "--from-file",
+            payload,
+            "--source",
+            "remotive",
+            "--json",
+        ]
+    )
+    body = json.loads(capsys.readouterr().out)
+    assert body["fetched"] == 2
+    assert body["new"] == 2
+    assert body["matching"] == 2
+
+
+def test_fetch_digest_is_message_friendly(tmp_path, capsys):
+    payload, db, config = _fixture(tmp_path)
+    main(
+        [
+            "--db",
+            db,
+            "--config",
+            config,
+            "fetch",
+            "--from-file",
+            payload,
+            "--source",
+            "remotive",
+            "--digest",
+        ]
+    )
+    assert capsys.readouterr().out.startswith("Job digest:")
+
+
+def test_fetch_from_file_needs_exactly_one_source(tmp_path, capsys):
+    payload, db, config = _fixture(tmp_path)
+    code = main(
+        [
+            "--db",
+            db,
+            "--config",
+            config,
+            "fetch",
+            "--from-file",
+            payload,
+            "--source",
+            "remotive",
+            "--source",
+            "arbeitnow",
+        ]
+    )
+    assert code == 2
+    assert "exactly one --source" in capsys.readouterr().err
+
+
+def test_fetch_missing_file_returns_error(tmp_path, capsys):
+    code = main(
+        [
+            "--db",
+            str(tmp_path / "x.db"),
+            "--config",
+            str(tmp_path / "c.json"),
+            "fetch",
+            "--from-file",
+            str(tmp_path / "absent.json"),
+            "--source",
+            "remotive",
+        ]
+    )
+    assert code == 2
+    assert "could not read" in capsys.readouterr().err
+
+
+def test_save_promotes_a_posting(tmp_path, capsys):
+    payload, db, config = _fixture(tmp_path)
+    main(["--db", db, "--config", config, "fetch", "--from-file", payload, "--source", "remotive"])
+    capsys.readouterr()
+
+    assert main(["--db", db, "--config", config, "save", "1"]) == 0
+    assert "Saved application #1" in capsys.readouterr().out
+
+    assert main(["--db", db, "--config", config, "list", "--json"]) == 0
+    applications = json.loads(capsys.readouterr().out)
+    assert applications[0]["role"] == "Python Developer"
+    assert applications[0]["source"] == "remotive"
+    assert applications[0]["status"] == "saved"
+
+
+def test_listed_number_is_the_id_that_save_accepts(tmp_path, capsys):
+    """The number shown must be the posting id, not its rank in the list."""
+    payload, db, config = _fixture(tmp_path)
+    main(
+        [
+            "--db",
+            db,
+            "--config",
+            config,
+            "fetch",
+            "--from-file",
+            payload,
+            "--source",
+            "remotive",
+            "--keyword",
+            "sales",
+        ]
+    )
+    out = capsys.readouterr().out
+    assert "\n   2. Sales Lead" in out  # second posting fetched, so id 2
+
+    assert main(["--db", db, "--config", config, "save", "2"]) == 0
+    assert "Saved application #1: Beta - Sales Lead" in capsys.readouterr().out
+
+
+def test_fetch_and_matches_agree_on_tie_order(tmp_path, capsys):
+    """Both commands must rank equal-scoring postings the same way."""
+    payload, db, config = _fixture(tmp_path)
+    main(
+        [
+            "--db",
+            db,
+            "--config",
+            config,
+            "fetch",
+            "--from-file",
+            payload,
+            "--source",
+            "remotive",
+            "--json",
+        ]
+    )
+    fetched_first = json.loads(capsys.readouterr().out)["matches"][0]["id"]
+
+    assert main(["--db", db, "--config", config, "matches", "--json"]) == 0
+    stored_first = json.loads(capsys.readouterr().out)[0]["id"]
+
+    assert fetched_first == stored_first
+
+
+def test_save_missing_posting_returns_error(tmp_path, capsys):
+    _payload, db, config = _fixture(tmp_path)
+    assert main(["--db", db, "--config", config, "save", "99"]) == 1
+    assert "No posting with id 99" in capsys.readouterr().err
+
+
+def test_criteria_saves_and_reads_back(tmp_path, capsys):
+    config = str(tmp_path / "config.json")
+    assert (
+        main(["--config", config, "criteria", "--keywords", "python", "django", "--remote-only"])
+        == 0
+    )
+    capsys.readouterr()
+
+    assert main(["--config", config, "criteria"]) == 0
+    saved = json.loads(capsys.readouterr().out)
+    assert saved["keywords"] == ["python", "django"]
+    assert saved["remote_only"] is True
+
+
+def test_saved_criteria_are_applied_by_fetch(tmp_path, capsys):
+    payload, db, config = _fixture(tmp_path)
+    main(["--config", config, "criteria", "--keywords", "python"])
+    capsys.readouterr()
+
+    main(["--db", db, "--config", config, "fetch", "--from-file", payload, "--source", "remotive"])
+    out = capsys.readouterr().out
+    assert "1 new match" in out
+    assert "Sales Lead" not in out

@@ -1,6 +1,6 @@
 """job-hunt: a small, local-first job-application tracker."""
 
-from jobhunt.models import STATUSES, Application
+from jobhunt.models import STATUSES, Application, Posting
 
-__all__ = ["STATUSES", "Application"]
-__version__ = "0.1.0"
+__all__ = ["STATUSES", "Application", "Posting"]
+__version__ = "0.2.0"
