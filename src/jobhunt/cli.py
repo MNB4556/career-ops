@@ -14,7 +14,7 @@ from jobhunt.config import DEFAULT_CONFIG_PATH, Config
 from jobhunt.config import load as load_config
 from jobhunt.config import save as save_config
 from jobhunt.matching import Criteria
-from jobhunt.models import STATUSES, Application, Posting
+from jobhunt.models import STATUSES, Application, Event, Posting, days_since
 from jobhunt.sources import SOURCES, SourceError
 from jobhunt.storage import Store
 
@@ -62,6 +62,22 @@ def build_parser() -> argparse.ArgumentParser:
 
     stats = subparsers.add_parser("stats", help="summarise applications")
     stats.add_argument("--json", action="store_true")
+
+    followups = subparsers.add_parser(
+        "followups", help="applications that have gone quiet and want a nudge"
+    )
+    followups.add_argument(
+        "--after-days",
+        type=int,
+        dest="after_days",
+        help="how many quiet days count as stale (default: the saved setting)",
+    )
+    followups.add_argument(
+        "--digest",
+        action="store_true",
+        help="message-shaped output that prints nothing when all is well",
+    )
+    followups.add_argument("--json", action="store_true")
 
     fetch = subparsers.add_parser("fetch", help="search free job boards for new matches")
     fetch.add_argument("--source", action="append", dest="sources", choices=SOURCES)
@@ -118,6 +134,7 @@ def build_parser() -> argparse.ArgumentParser:
     criteria.add_argument("--salary-max", type=int, dest="salary_max", help="0 clears it")
     criteria.add_argument("--adzuna-queries", nargs="*", dest="adzuna_queries")
     criteria.add_argument("--adzuna-where", dest="adzuna_where")
+    criteria.add_argument("--follow-up-days", type=int, dest="follow_up_days")
     criteria.add_argument("--sources", nargs="*", choices=SOURCES)
     criteria.add_argument("--limit", type=int)
     remote = criteria.add_mutually_exclusive_group()
@@ -137,9 +154,14 @@ def _as_dict(application: Application) -> dict[str, object]:
         "source": application.source,
         "applied_on": application.applied_on,
         "notes": application.notes,
+        "posting_id": application.posting_id,
         "created_at": application.created_at,
         "updated_at": application.updated_at,
     }
+
+
+def _event_as_dict(event: Event) -> dict[str, object]:
+    return {"at": event.at, "status": event.status, "note": event.note}
 
 
 def _posting_as_dict(posting: Posting, score: int | None = None) -> dict[str, object]:
@@ -227,6 +249,7 @@ def main(argv: list[str] | None = None) -> int:
             "fetch": _cmd_fetch,
             "matches": _cmd_matches,
             "save": _cmd_save,
+            "followups": _cmd_followups,
         }
         return handlers[args.command](store, args)
 
@@ -270,11 +293,28 @@ def _cmd_show(store: Store, args: argparse.Namespace) -> int:
     if application is None:
         print(f"No application with id {args.id}", file=sys.stderr)
         return 1
+    posting = store.get_posting(application.posting_id) if application.posting_id else None
+    events = store.timeline(application.id)
     if args.json:
-        print(json.dumps(_as_dict(application), indent=2))
-    else:
-        for key, value in _as_dict(application).items():
-            print(f"{key:>12}: {value}")
+        body = _as_dict(application)
+        body["advert"] = _posting_as_dict(posting) if posting else None
+        body["timeline"] = [_event_as_dict(event) for event in events]
+        print(json.dumps(body, indent=2))
+        return 0
+    for key, value in _as_dict(application).items():
+        print(f"{key:>12}: {value}")
+    if posting is not None:
+        print(f"{'advert':>12}: {posting.title} - {posting.company}")
+        for label, value in (("where", posting.location), ("pay", posting.salary)):
+            if value:
+                print(f"{label:>12}: {value}")
+        if posting.url:
+            print(f"{'link':>12}: {posting.url}")
+    if events:
+        print(f"{'history':>12}:")
+        for event in events:
+            note = f"  ({event.note})" if event.note else ""
+            print(f"{'':>14}{event.at}  {event.status}{note}")
     return 0
 
 
@@ -483,8 +523,76 @@ def _cmd_save(store: Store, args: argparse.Namespace) -> int:
     if posting is None:
         print(f"No posting with id {args.id}", file=sys.stderr)
         return 1
+    existing = store.find_by_posting(posting.id)
+    if existing is not None:
+        print(f"Already saved as application #{existing.id}: {existing.company} - {existing.role}")
+        return 0
     application = store.add(posting.to_application())
     print(f"Saved application #{application.id}: {application.company} - {application.role}")
+    print(f"Move it on with: jobhunt update {application.id} --status applied")
+    return 0
+
+
+def _print_follow_up(application: Application, quiet_days: int) -> None:
+    """Print one stale application the way a chat message wants it."""
+    quiet = f"{quiet_days} day{'s' if quiet_days != 1 else ''}"
+    print(f"\n{application.role}")
+    print(f"{application.company} · {application.status} · {quiet} quiet")
+    if application.url:
+        print(application.url)
+
+
+def _cmd_followups(store: Store, args: argparse.Namespace) -> int:
+    """List applications that have gone quiet, so none is silently dropped.
+
+    In digest mode this prints nothing when there is nothing to chase. That is
+    what lets it run on a schedule: an automation that produces no output sends
+    no message, so the nudge only arrives on the days it is worth reading.
+    """
+    try:
+        config = load_config(args.config)
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+    after_days = args.after_days if args.after_days is not None else config.follow_up_days
+    stale = []
+    for application in store.list_open():
+        quiet = days_since(application.updated_at)
+        if quiet is not None and quiet >= after_days:
+            stale.append((application, quiet))
+    stale.sort(key=lambda pair: pair[1], reverse=True)
+
+    if args.json:
+        print(
+            json.dumps(
+                [{**_as_dict(application), "quiet_days": quiet} for application, quiet in stale],
+                indent=2,
+            )
+        )
+        return 0
+
+    if not stale:
+        if not args.digest:
+            print(f"Nothing to chase: nothing has been quiet for {after_days}+ days.")
+        return 0
+
+    if args.digest:
+        print(f"{len(stale)} to chase")
+        for application, quiet in stale:
+            _print_follow_up(application, quiet)
+        return 0
+
+    print(f"{len(stale)} application{'s' if len(stale) != 1 else ''} quiet for {after_days}+ days:")
+    print()
+    for application, quiet in stale:
+        print(
+            f"{application.id:>4}. {application.role} - {application.company}"
+            f"  ({application.status}, {quiet} days)"
+        )
+        if application.url:
+            print(f"      {application.url}")
+        if application.notes:
+            print(f"      {application.notes}")
     return 0
 
 
@@ -528,6 +636,9 @@ def _cmd_criteria(_store: Store | None, args: argparse.Namespace) -> int:
         changed = True
     if args.adzuna_where is not None:
         config.adzuna_where = args.adzuna_where or None
+        changed = True
+    if args.follow_up_days is not None:
+        config.follow_up_days = args.follow_up_days
         changed = True
     if changed:
         path = save_config(config, args.config)

@@ -6,7 +6,7 @@ import sqlite3
 
 import pytest
 
-from jobhunt.models import Application, Posting
+from jobhunt.models import Application, Posting, today
 from jobhunt.storage import Store
 
 
@@ -198,3 +198,83 @@ def test_legacy_databases_gain_the_salary_columns(tmp_path):
     assert is_new is True
     assert stored.salary_min == 29000
     assert stored.salary_currency == "GBP"
+
+
+def test_an_application_remembers_the_posting_it_came_from(store):
+    posting = store.upsert_posting(
+        Posting(source="adzuna", title="Junior Dev", company="Acme", external_id="1")
+    )[0]
+    application = store.add(posting.to_application())
+    assert application.posting_id == posting.id
+    assert store.find_by_posting(posting.id) == application
+
+
+def test_find_by_posting_is_none_when_nothing_tracks_it(store):
+    assert store.find_by_posting(7) is None
+
+
+def test_status_changes_are_recorded_as_history(store):
+    """Only keeping the current status would lose when each move happened."""
+    application = store.add(Application(company="A", role="Dev"))
+    store.update_status(application.id, "applied")
+    store.update_status(application.id, "interview", notes="call booked")
+
+    assert [(event.status, event.note) for event in store.timeline(application.id)] == [
+        ("saved", None),
+        ("applied", None),
+        ("interview", "call booked"),
+    ]
+
+
+def test_the_first_move_to_applied_stamps_the_date(store):
+    """``applied_on`` is what a follow-up is measured from, so it is automatic."""
+    application = store.add(Application(company="A", role="Dev"))
+    assert application.applied_on is None
+
+    applied = store.update_status(application.id, "applied")
+    assert applied.applied_on == today()
+
+
+def test_deleting_an_application_takes_its_history_with_it(store):
+    application = store.add(Application(company="A", role="Dev"))
+    store.update_status(application.id, "applied")
+
+    assert store.delete(application.id) is True
+    assert store.timeline(application.id) == []
+
+
+def test_open_applications_keep_an_unanswered_offer_but_drop_closed(store):
+    store.add(Application(company="Offer", role="Dev", status="offer"))
+    store.add(Application(company="Rejected", role="Dev", status="rejected"))
+    store.add(Application(company="Withdrawn", role="Dev", status="withdrawn"))
+
+    assert [application.company for application in store.list_open()] == ["Offer"]
+
+
+def test_legacy_application_tables_gain_the_posting_link(tmp_path):
+    """A tracker from before postings were linked is upgraded, not discarded."""
+    path = tmp_path / "legacy-apps.db"
+    legacy = sqlite3.connect(path)
+    legacy.executescript(
+        """
+        CREATE TABLE applications (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            company     TEXT NOT NULL,
+            role        TEXT NOT NULL,
+            status      TEXT NOT NULL DEFAULT 'saved',
+            url         TEXT,
+            source      TEXT,
+            applied_on  TEXT,
+            notes       TEXT,
+            created_at  TEXT NOT NULL,
+            updated_at  TEXT NOT NULL
+        );
+        """
+    )
+    legacy.commit()
+    legacy.close()
+
+    with Store(path) as store:
+        application = store.add(Application(company="A", role="Dev", posting_id=7))
+
+    assert application.posting_id == 7

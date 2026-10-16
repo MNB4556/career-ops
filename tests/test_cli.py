@@ -592,3 +592,104 @@ def test_criteria_persists_the_adzuna_place(tmp_path, capsys):
 
     assert main(["--config", config, "criteria"]) == 0
     assert json.loads(capsys.readouterr().out)["adzuna_where"] == "london"
+
+
+def test_save_links_the_advert_and_refuses_a_second_save(tmp_path, capsys):
+    payload, db, config = _fixture(tmp_path)
+    main(["--db", db, "--config", config, "fetch", "--from-file", payload, "--source", "remotive"])
+    capsys.readouterr()
+
+    assert main(["--db", db, "--config", config, "save", "1"]) == 0
+    capsys.readouterr()
+
+    assert main(["--db", db, "--config", config, "save", "1"]) == 0
+    assert "Already saved as application #1" in capsys.readouterr().out
+
+    assert main(["--db", db, "--config", config, "list", "--json"]) == 0
+    assert len(json.loads(capsys.readouterr().out)) == 1
+
+
+def test_show_prints_the_advert_and_the_history(tmp_path, capsys):
+    payload, db, config = _fixture(tmp_path)
+    main(["--db", db, "--config", config, "fetch", "--from-file", payload, "--source", "remotive"])
+    main(["--db", db, "--config", config, "save", "1"])
+    main(["--db", db, "--config", config, "update", "1", "--status", "applied"])
+    capsys.readouterr()
+
+    assert main(["--db", db, "--config", config, "show", "1"]) == 0
+    out = capsys.readouterr().out
+    assert "advert" in out
+    assert "https://example.com/1" in out  # the advert comes back with it
+    assert "history" in out
+    assert "applied" in out
+
+
+def test_applied_is_stamped_and_the_history_is_visible_as_json(tmp_path, capsys):
+    db = str(tmp_path / "stamp.db")
+    config = str(tmp_path / "stamp-cfg.json")
+    main(["--db", db, "--config", config, "add", "--company", "Acme", "--role", "Dev"])
+    main(["--db", db, "--config", config, "update", "1", "--status", "applied"])
+    capsys.readouterr()
+
+    assert main(["--db", db, "--config", config, "show", "1", "--json"]) == 0
+    body = json.loads(capsys.readouterr().out)
+    assert body["applied_on"] is not None
+    assert [event["status"] for event in body["timeline"]] == ["saved", "applied"]
+
+
+def test_followups_lists_what_has_gone_quiet(tmp_path, capsys):
+    db = str(tmp_path / "fu.db")
+    config = str(tmp_path / "fu-cfg.json")
+    main(
+        [
+            "--db",
+            db,
+            "--config",
+            config,
+            "add",
+            "--company",
+            "Acme",
+            "--role",
+            "Junior Dev",
+            "--url",
+            "https://example.com/1",
+        ]
+    )
+    capsys.readouterr()
+
+    assert main(["--db", db, "--config", config, "followups", "--after-days", "0"]) == 0
+    out = capsys.readouterr().out
+    assert "Junior Dev" in out
+    assert "https://example.com/1" in out
+
+
+def test_the_followup_digest_stays_silent_when_all_is_well(tmp_path, capsys):
+    """A nudge that fires every day regardless would stop being read."""
+    db = str(tmp_path / "quiet.db")
+    config = str(tmp_path / "quiet-cfg.json")
+    main(["--db", db, "--config", config, "add", "--company", "Acme", "--role", "Junior Dev"])
+    capsys.readouterr()
+
+    assert main(["--db", db, "--config", config, "followups", "--digest"]) == 0
+    assert capsys.readouterr().out == ""
+
+
+def test_the_followup_digest_is_shaped_for_a_phone(tmp_path, capsys):
+    db = str(tmp_path / "fu2.db")
+    config = str(tmp_path / "fu2-cfg.json")
+    main(["--db", db, "--config", config, "add", "--company", "Acme", "--role", "Junior Dev"])
+    capsys.readouterr()
+
+    assert main(["--db", db, "--config", config, "followups", "--after-days", "0", "--digest"]) == 0
+    out = capsys.readouterr().out
+    assert out.startswith("1 to chase")
+    assert "Acme · saved · 0 days quiet" in out
+
+
+def test_followups_honours_a_saved_threshold(tmp_path, capsys):
+    config = str(tmp_path / "cfg.json")
+    main(["--config", config, "criteria", "--follow-up-days", "21"])
+    capsys.readouterr()
+
+    assert main(["--config", config, "criteria"]) == 0
+    assert json.loads(capsys.readouterr().out)["follow_up_days"] == 21

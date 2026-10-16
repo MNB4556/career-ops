@@ -172,6 +172,10 @@ place and pay on one line, then the advert link. The database id and the
 `jobhunt save` hint are left out: they are useful on a terminal and noise in a
 chat message. The advert's own link is the authoritative way in.
 
+The same shape is used by `jobhunt followups --digest`, which is the other half
+of the loop: one scheduled job brings new adverts, the other brings back the
+applications you have gone quiet on.
+
 ## Tracking applications
 
 ```bash
@@ -179,14 +183,21 @@ chat message. The advert's own link is the authoritative way in.
 jobhunt add --company "Acme" --role "Backend Engineer" --status applied \
     --url https://acme.example/jobs/123 --source linkedin
 
-# See everything
-jobhunt list
+# Or promote something you found, keeping the advert attached
+jobhunt save 42
 
-# Just the ones you're still waiting on
+# See everything, or just the ones you're still waiting on
+jobhunt list
 jobhunt list --status applied
 
 # Move an application forward
 jobhunt update 1 --status interview --notes "Technical screen booked"
+
+# The application, the advert it came from, and everything that happened to it
+jobhunt show 1
+
+# What has gone quiet and wants chasing?
+jobhunt followups
 
 # Where does everything stand?
 jobhunt stats
@@ -200,6 +211,31 @@ file with `--config path/to/config.json`.
 
 `saved` → `applied` → `screening` → `interview` → `offer`, plus the terminal
 `rejected` and `withdrawn`.
+
+Every move is recorded as it happens, so `show` tells you the whole story rather
+than only where things ended up. The first move to `applied` also stamps
+`applied_on` on its own: that date is what a follow-up gets measured from, and it
+should not depend on remembering to pass it.
+
+### Chasing what has gone quiet
+
+Most applications die of silence rather than rejection, so `followups` exists to
+stop that happening unnoticed. It lists open applications with no movement for
+`follow_up_days` (default 10; set it with `jobhunt criteria --follow-up-days 21`),
+most stale first. `rejected` and `withdrawn` drop out; an unanswered `offer`
+stays in, because that still needs an answer.
+
+```bash
+jobhunt followups                 # terminal view
+jobhunt followups --after-days 5  # a one-off threshold, saving nothing
+jobhunt followups --digest        # message view
+```
+
+`--digest` prints **nothing at all** when there is nothing to chase. That is
+deliberate, and it is what makes the scheduled version worth having: an
+automation that produces no output sends no message, so the nudge only arrives
+on the days it is worth reading. A daily "nothing to chase" would be trained out
+of your attention within a week.
 
 ## Privacy
 
