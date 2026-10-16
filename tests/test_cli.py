@@ -539,3 +539,56 @@ def test_matches_credits_adzuna_when_it_is_shown(tmp_path, capsys):
 
     assert main(["--db", db, "--config", config, "matches"]) == 0
     assert "Source: Adzuna" in capsys.readouterr().out
+
+
+def test_a_digest_entry_is_built_for_a_phone(tmp_path, capsys):
+    """Role, company, place, pay, link - and no database id or CLI advice."""
+    payload = {
+        "results": [
+            {
+                "id": "1",
+                "title": "Junior Developer",
+                "company": {"display_name": "Acme"},
+                "location": {"display_name": "London, UK"},
+                "redirect_url": "https://example.com/job/1",
+                "salary_min": 30000,
+                "salary_max": 32000,
+                "salary_is_predicted": 0,
+                "description": "<p>python</p>",
+            }
+        ]
+    }
+    path = tmp_path / "digest.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    code = main(
+        [
+            "--db",
+            str(tmp_path / "digest.db"),
+            "--config",
+            str(tmp_path / "digest-cfg.json"),
+            "fetch",
+            "--from-file",
+            str(path),
+            "--source",
+            "adzuna",
+            "--digest",
+        ]
+    )
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "\nJunior Developer\n" in out
+    assert "Acme · London, UK · £30,000-£32,000" in out
+    assert "https://example.com/job/1" in out
+    assert "  1. " not in out  # the id-led terminal layout
+    assert "jobhunt save" not in out
+    assert "Source: Adzuna" in out
+
+
+def test_criteria_persists_the_adzuna_place(tmp_path, capsys):
+    config = str(tmp_path / "config.json")
+    main(["--config", config, "criteria", "--adzuna-where", "london"])
+    capsys.readouterr()
+
+    assert main(["--config", config, "criteria"]) == 0
+    assert json.loads(capsys.readouterr().out)["adzuna_where"] == "london"

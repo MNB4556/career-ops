@@ -30,6 +30,7 @@ class Config:
     salary_max: int | None = None
     salary_currency: str | None = "GBP"
     adzuna_queries: list[str] = field(default_factory=list)
+    adzuna_where: str | None = None
     sources: list[str] = field(default_factory=lambda: list(SOURCES))
     limit: int = 50
 
@@ -58,6 +59,7 @@ class Config:
             "salary_max": self.salary_max,
             "salary_currency": self.salary_currency,
             "adzuna_queries": list(self.adzuna_queries),
+            "adzuna_where": self.adzuna_where,
             "sources": list(self.sources),
             "limit": self.limit,
         }

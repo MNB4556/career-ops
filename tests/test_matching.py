@@ -91,6 +91,13 @@ def test_location_filter_keeps_remote_roles_with_unknown_location():
     assert Criteria(locations=("london",)).matches(posting(location=None, remote=True))
 
 
+def test_a_remote_role_survives_a_named_place_it_does_not_match():
+    """Asking for "London or remote" must not drop a remote role listing Leeds."""
+    criteria = Criteria(locations=("london", "remote"))
+    assert criteria.matches(posting(location="Leeds, UK", remote=True))
+    assert not criteria.matches(posting(location="Leeds, UK", remote=False))
+
+
 def test_title_hits_score_higher_than_body_hits():
     criteria = Criteria(keywords=("python",))
     assert criteria.score(posting(title="Python Developer")) > criteria.score(
