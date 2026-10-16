@@ -167,10 +167,16 @@ jobhunt fetch --digest --top 5
 than saying "nothing new" and being ignored, it falls back to the best matches
 already stored and says so.
 
-A digest entry is cut down to what a phone can use — the role, then company,
-place and pay on one line, then the advert link. The database id and the
-`jobhunt save` hint are left out: they are useful on a terminal and noise in a
-chat message. The advert's own link is the authoritative way in.
+A digest entry is cut down to what a phone can use — a short `#id` handle, the
+role, then company, place and pay on one line, then the advert link. The
+padded terminal layout and the `jobhunt save` command line are left out: they
+are useful on a terminal and noise in a chat message. The advert's own link
+remains the authoritative way in.
+
+The `#id` stays because it is what a reply refers to. With the agent wired up to
+the tracker, "save 13" acts on the entry numbered `#13` in the message, and the
+same handle on a follow-up takes "applied 4". The link is still the way in for
+everything else.
 
 The same shape is used by `jobhunt followups --digest`, which is the other half
 of the loop: one scheduled job brings new adverts, the other brings back the
