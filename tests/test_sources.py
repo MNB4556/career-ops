@@ -10,6 +10,7 @@ from jobhunt.sources import (
     PARSERS,
     SOURCES,
     SourceError,
+    fetch_adzuna,
     parse,
     parse_adzuna,
     parse_arbeitnow,
@@ -217,3 +218,69 @@ def test_parse_adzuna_falls_back_to_the_area_list():
 def test_parse_adzuna_needs_a_company():
     payload = {"results": [{"id": "1", "title": "Ghost Job"}]}
     assert parse_adzuna(payload) == []
+
+
+def _adzuna_creds(*_args, **_kwargs):
+    from jobhunt.credentials import AdzunaCredentials
+
+    return AdzunaCredentials(app_id="id", app_key="key")
+
+
+def _record_urls(monkeypatch, payloads=None):
+    """Capture the URLs Adzuna would be called with, without any network."""
+    asked: list[str] = []
+
+    def fake_get_json(url):
+        asked.append(url)
+        return (payloads or {}).get(
+            "remote" if "what_and=remote" in url else "place", {"results": []}
+        )
+
+    monkeypatch.setattr("jobhunt.sources._get_json", fake_get_json)
+    monkeypatch.setattr("jobhunt.sources.load_adzuna", _adzuna_creds)
+    return asked
+
+
+def test_adzuna_runs_a_place_pass_and_a_remote_pass(monkeypatch):
+    """A place filter must not hide remote work, so both are asked for."""
+    asked = _record_urls(monkeypatch)
+
+    fetch_adzuna(50, ["junior engineer"], where="london")
+
+    assert len(asked) == 2
+    assert "where=london" in asked[0]
+    assert "what_and=remote" not in asked[0]
+    assert "what_and=remote" in asked[1]
+    assert "where=" not in asked[1]
+
+
+def test_adzuna_without_a_place_makes_one_pass_per_query(monkeypatch):
+    asked = _record_urls(monkeypatch)
+
+    fetch_adzuna(50, ["a", "b"])
+
+    assert len(asked) == 2
+    assert all("where=" not in url for url in asked)
+
+
+def test_adzuna_marks_the_remote_pass_as_remote(monkeypatch):
+    """A Derry advert found by the remote pass is remote: that is the evidence."""
+    _record_urls(
+        monkeypatch,
+        {
+            "remote": {
+                "results": [
+                    {
+                        "id": "1",
+                        "title": "Junior Developer",
+                        "company": {"display_name": "Acme"},
+                        "location": {"display_name": "Derry, Northern Ireland"},
+                    }
+                ]
+            }
+        },
+    )
+
+    (posting,) = fetch_adzuna(50, ["junior developer"], where="london")
+    assert posting.remote is True
+    assert posting.location == "Derry, Northern Ireland"

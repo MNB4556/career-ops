@@ -83,6 +83,11 @@ def build_parser() -> argparse.ArgumentParser:
         dest="adzuna_queries",
         help="phrase to search Adzuna for (repeatable); Adzuna is the UK source",
     )
+    fetch.add_argument(
+        "--adzuna-where",
+        dest="adzuna_where",
+        help="place to search Adzuna in, e.g. london; Adzuna also runs a remote pass",
+    )
     fetch.add_argument("--remote-only", action="store_true", default=None)
     fetch.add_argument("--min-score", type=int, default=0, dest="min_score")
     fetch.add_argument(
@@ -112,6 +117,7 @@ def build_parser() -> argparse.ArgumentParser:
     criteria.add_argument("--salary-min", type=int, dest="salary_min", help="0 clears it")
     criteria.add_argument("--salary-max", type=int, dest="salary_max", help="0 clears it")
     criteria.add_argument("--adzuna-queries", nargs="*", dest="adzuna_queries")
+    criteria.add_argument("--adzuna-where", dest="adzuna_where")
     criteria.add_argument("--sources", nargs="*", choices=SOURCES)
     criteria.add_argument("--limit", type=int)
     remote = criteria.add_mutually_exclusive_group()
@@ -166,6 +172,30 @@ def _print_posting(posting: Posting, *, tags: bool = True) -> None:
         print(f"      {posting.salary}")
     if tags and posting.tags:
         print(f"      {', '.join(posting.tags[:8])}")
+
+
+def _print_digest_posting(posting: Posting) -> None:
+    """Print one advert the way a chat message wants it.
+
+    Four things and nothing else: the role, then company, place and pay on one
+    line, then the link. The terminal view leads with the database id because
+    ``jobhunt save`` needs it; a message on a phone has no use for that, and
+    the advert's own link is the authoritative way in.
+    """
+    print(f"\n{posting.title}")
+    details = [part for part in (posting.company, posting.location, posting.salary) if part]
+    if details:
+        print(" · ".join(details))
+    if posting.url:
+        print(posting.url)
+
+
+def _print_listing(posting: Posting, *, digest: bool) -> None:
+    """Print one advert, richly on a terminal and minimally in a digest."""
+    if digest:
+        _print_digest_posting(posting)
+    else:
+        _print_posting(posting, tags=True)
 
 
 def _use_utf8_output() -> None:
@@ -327,13 +357,11 @@ def _print_stored_fallback(store: Store, criteria: Criteria, args: argparse.Name
         return False
     shown = ranked[: args.top]
     print("Nothing new today. Best current matches:")
-    print()
     for posting, _score in shown:
-        _print_posting(posting, tags=False)
+        _print_digest_posting(posting)
     if len(ranked) > len(shown):
         print(f"\n... and {len(ranked) - len(shown)} more.")
     _credit_adzuna({posting.source for posting, _ in shown})
-    print("\nSave one with: jobhunt save <id>")
     return True
 
 
@@ -347,6 +375,7 @@ def _cmd_fetch(store: Store, args: argparse.Namespace) -> int:
     criteria = _resolve_criteria(args, config)
     limit = args.limit if args.limit is not None else config.limit
     queries = args.adzuna_queries if args.adzuna_queries is not None else config.adzuna_queries
+    where = args.adzuna_where if args.adzuna_where is not None else config.adzuna_where
 
     if args.from_file:
         if len(sources) != 1:
@@ -363,7 +392,7 @@ def _cmd_fetch(store: Store, args: argparse.Namespace) -> int:
         failures = []
         for name in sources:
             try:
-                fetched.extend(source_module.fetch(name, limit, queries))
+                fetched.extend(source_module.fetch(name, limit, queries, where))
             except (SourceError, ValueError) as exc:
                 failures.append(f"{name}: {exc}")
         for failure in failures:
@@ -409,13 +438,16 @@ def _cmd_fetch(store: Store, args: argparse.Namespace) -> int:
             return 0
         print("Nothing matched your criteria this time.")
         return 0
-    print()
+    if not args.digest:
+        print()
     for posting, _score in shown:
-        _print_posting(posting, tags=not args.digest)
+        _print_listing(posting, digest=args.digest)
     if len(ranked) > len(shown):
-        print(f"\n... and {len(ranked) - len(shown)} more (raise --top to see them).")
+        hint = "" if args.digest else " (raise --top to see them)"
+        print(f"\n... and {len(ranked) - len(shown)} more{hint}.")
     _credit_adzuna({posting.source for posting, _ in shown})
-    print("\nSave one with: jobhunt save <id>")
+    if not args.digest:
+        print("\nSave one with: jobhunt save <id>")
     return 0
 
 
@@ -435,14 +467,14 @@ def _cmd_matches(store: Store, args: argparse.Namespace) -> int:
         return 0
     if args.digest:
         print(f"Stored matches: {len(ranked)}")
-        print()
     else:
         print(f"{len(ranked)} stored posting{'s' if len(ranked) != 1 else ''} match your criteria.")
         print()
     for posting, _score in ranked:
-        _print_posting(posting, tags=not args.digest)
+        _print_listing(posting, digest=args.digest)
     _credit_adzuna({posting.source for posting, _ in ranked})
-    print("\nSave one with: jobhunt save <id>")
+    if not args.digest:
+        print("\nSave one with: jobhunt save <id>")
     return 0
 
 
@@ -493,6 +525,9 @@ def _cmd_criteria(_store: Store | None, args: argparse.Namespace) -> int:
         changed = True
     if args.adzuna_queries is not None:
         config.adzuna_queries = args.adzuna_queries
+        changed = True
+    if args.adzuna_where is not None:
+        config.adzuna_where = args.adzuna_where or None
         changed = True
     if changed:
         path = save_config(config, args.config)

@@ -85,13 +85,14 @@ class Criteria:
             return False
         if not self._salary_fits(posting):
             return False
-        if self.locations:
+        if self.locations and not posting.remote:
+            # A remote advert is location-independent, so it survives whatever
+            # the locations list says: asking for "London or remote" must not
+            # drop a remote role that happens to name Leeds. A named on-site
+            # role still has to match, and one with no place at all is not
+            # worth guessing at.
             location = normalise(posting.location or "")
-            if location:
-                if not _contains(self.locations, location):
-                    return False
-            elif not posting.remote:
-                # No stated location on an on-site role: not worth guessing at.
+            if not location or not _contains(self.locations, location):
                 return False
         if self.keywords and not _contains(self.keywords, searchable):
             return False

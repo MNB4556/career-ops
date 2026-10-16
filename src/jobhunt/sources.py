@@ -258,8 +258,13 @@ def _adzuna_tags(item: dict[str, Any]) -> tuple[str, ...]:
     return tuple(tags)
 
 
-def parse_adzuna(payload: dict[str, Any]) -> list[Posting]:
-    """Parse an Adzuna ``/v1/api/jobs/gb/search`` response."""
+def parse_adzuna(payload: dict[str, Any], *, remote: bool = False) -> list[Posting]:
+    """Parse an Adzuna ``/v1/api/jobs/gb/search`` response.
+
+    *remote* forces the flag on, for results of a query that already required
+    the word: Adzuna has no remote field to read, so ``what_and=remote`` is the
+    evidence, and it is worth more than the advert's own wording.
+    """
     postings = []
     for item in payload.get("results") or ():
         if not isinstance(item, dict):
@@ -283,7 +288,8 @@ def parse_adzuna(payload: dict[str, Any]) -> list[Posting]:
                 company=company,
                 url=item.get("redirect_url"),
                 location=location,
-                remote=bool(re.search(r"\bremote\b", f"{title} {location or ''}", re.IGNORECASE)),
+                remote=remote
+                or bool(re.search(r"\bremote\b", f"{title} {location or ''}", re.IGNORECASE)),
                 salary=_gbp_salary(salary_min, salary_max),
                 salary_min=salary_min,
                 salary_max=salary_max,
@@ -398,9 +404,21 @@ FETCHERS = {
 
 
 def _adzuna_url(
-    credentials: AdzunaCredentials, *, query: str | None, limit: int, page: int = 1
+    credentials: AdzunaCredentials,
+    *,
+    query: str | None,
+    limit: int,
+    where: str | None = None,
+    remote: bool = False,
+    page: int = 1,
 ) -> str:
     """Build one Adzuna search URL.
+
+    *where* hands the geography to Adzuna rather than guessing at it locally.
+    Its geocoder knows a London advert from a Leeds one; a nationwide advert
+    arrives labelled just ``"UK"`` with no city to match on, so a local text
+    filter cannot tell the two apart. *remote* adds ``what_and=remote``, which
+    is the only remote lever Adzuna offers.
 
     The result embeds the API key, so anything that logs it must first pass it
     through :func:`jobhunt.credentials.redact`.
@@ -416,16 +434,27 @@ def _adzuna_url(
         # No query given: stay in the IT category rather than paging through
         # the whole UK market.
         params["category"] = "it-jobs"
+    if where:
+        params["where"] = where
+    if remote:
+        params["what_and"] = "remote"
     return f"{ADZUNA_SEARCH_URL.format(page=page)}?{urlencode(params)}"
 
 
-def fetch_adzuna(limit: int = 50, queries: Sequence[str] = ()) -> list[Posting]:
-    """Fetch and parse Adzuna (UK) postings, one request per query.
+def fetch_adzuna(
+    limit: int = 50, queries: Sequence[str] = (), where: str | None = None
+) -> list[Posting]:
+    """Fetch and parse Adzuna (UK) postings.
 
-    *limit* applies per query rather than to the combined result: truncating
+    With *where* set, every query is run twice: once inside that place, and
+    once for remote adverts anywhere. The first is geocoded by Adzuna, which is
+    the only reliable way to ask for London. The second catches the remote
+    roles a place filter would otherwise hide.
+
+    *limit* applies per request rather than to the combined result: truncating
     the union would let the first query crowd out the rest. Requests stay few
-    regardless - the free tier allows 250 calls a day, and a daily digest built
-    from a handful of targeted queries sits well inside that.
+    regardless - the free tier allows 250 calls a day, and a daily digest using
+    eight sits well inside that.
     """
     credentials = load_adzuna()
     if credentials is None:
@@ -436,15 +465,22 @@ def fetch_adzuna(limit: int = 50, queries: Sequence[str] = ()) -> list[Posting]:
     wanted: tuple[str | None, ...] = tuple(
         query.strip() for query in queries if query and query.strip()
     ) or (None,)
+    if where:
+        passes: tuple[tuple[str | None, bool], ...] = ((where, False), (None, True))
+    else:
+        passes = ((None, False),)
     postings: list[Posting] = []
     seen: set[str] = set()
     for query in wanted:
-        payload = _get_json(_adzuna_url(credentials, query=query, limit=limit))
-        for posting in parse_adzuna(payload):
-            if posting.key in seen:
-                continue
-            seen.add(posting.key)
-            postings.append(posting)
+        for place, only_remote in passes:
+            url = _adzuna_url(
+                credentials, query=query, limit=limit, where=place, remote=only_remote
+            )
+            for posting in parse_adzuna(_get_json(url), remote=only_remote):
+                if posting.key in seen:
+                    continue
+                seen.add(posting.key)
+                postings.append(posting)
     return postings
 
 
@@ -459,14 +495,19 @@ def parse(source: str, payload: Any) -> list[Posting]:
     return parser(payload)
 
 
-def fetch(source: str, limit: int = 50, queries: Sequence[str] = ()) -> list[Posting]:
+def fetch(
+    source: str,
+    limit: int = 50,
+    queries: Sequence[str] = (),
+    where: str | None = None,
+) -> list[Posting]:
     """Fetch postings from a single named *source*.
 
-    *queries* applies only to Adzuna, which searches by phrase; every other
-    board is fetched in full and filtered locally.
+    *queries* and *where* apply only to Adzuna, which searches by phrase and
+    place; every other board is fetched in full and filtered locally.
     """
     if source == "adzuna":
-        return fetch_adzuna(limit, queries)
+        return fetch_adzuna(limit, queries, where)
     try:
         fetcher = FETCHERS[source]
     except KeyError:

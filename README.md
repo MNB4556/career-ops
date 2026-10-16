@@ -55,6 +55,12 @@ jobhunt matches
 jobhunt save 42
 ```
 
+`--locations` is an OR-list, and a **remote** advert always survives it:
+asking for `--locations london remote` should not drop a remote role that
+happens to name Leeds. A named on-site role still has to match one of the
+places you listed, and an on-site role stating no place at all is not worth
+guessing at.
+
 `fetch` prints the **posting id** next to each result, and `save` takes exactly
 that id. Nothing is applied to automatically — `jobhunt` is a filter, not an
 autopilot, and the link in each result is authoritative.
@@ -118,10 +124,30 @@ jobhunt criteria --adzuna-queries "junior software engineer" "graduate software 
 jobhunt fetch --source adzuna --top 10
 ```
 
-It is UK-only (`gb`) by design. The free tier allows 250 calls a day and a daily
-digest uses a handful. Adzuna's terms require that it be credited wherever its
-data is published, so results it contributes are followed by a `Source: Adzuna`
-line — including in a digest sent to your phone.
+`--adzuna-where` confines it to a place — and you then always get both passes:
+
+```bash
+jobhunt criteria --adzuna-where london --locations london remote
+```
+
+Each query runs twice: once **inside** London, and once for **remote** adverts
+anywhere.
+
+The place pass has to be done by Adzuna rather than by filtering the text
+locally. A nationwide advert comes back labelled simply `"UK"`, and its `area`
+list is `["UK"]` too, so nothing local separates a London role from a Leeds one
+— filtering on the text silently discards perfectly good roles. Geocoding is
+the only signal that works.
+
+The remote pass exists because the place filter would otherwise hide remote
+work entirely. Adzuna has no remote field, so `what_and=remote` is the only
+lever, and a hit is taken as the evidence.
+
+That is two requests per query. Adzuna is UK-only (`gb`) by design, the free
+tier allows 250 calls a day, and a daily digest using eight sits well inside it.
+Adzuna's terms require that it be credited wherever its data is published, so
+results it contributes are followed by a `Source: Adzuna` line — including in a
+digest sent to your phone.
 
 **Hacker News is best-effort.** Those postings are prose, not data, so the
 company and role are guessed from the first line of each comment, which
@@ -140,6 +166,11 @@ jobhunt fetch --digest --top 5
 `--digest` reports what is **new** since the last run. On a quiet day, rather
 than saying "nothing new" and being ignored, it falls back to the best matches
 already stored and says so.
+
+A digest entry is cut down to what a phone can use — the role, then company,
+place and pay on one line, then the advert link. The database id and the
+`jobhunt save` hint are left out: they are useful on a terminal and noise in a
+chat message. The advert's own link is the authoritative way in.
 
 ## Tracking applications
 
