@@ -200,11 +200,12 @@ def _print_digest_posting(posting: Posting) -> None:
     """Print one advert the way a chat message wants it.
 
     Four things and nothing else: the role, then company, place and pay on one
-    line, then the link. The terminal view leads with the database id because
-    ``jobhunt save`` needs it; a message on a phone has no use for that, and
-    the advert's own link is the authoritative way in.
+    line, then the link. The leading ``#id`` is the handle a reply uses
+    (``save 13``); the terminal view leads with the same number because
+    ``jobhunt save`` needs it, but a message has no room for the padded layout.
     """
-    print(f"\n{posting.title}")
+    reference = f"#{posting.id}  " if posting.id is not None else ""
+    print(f"\n{reference}{posting.title}")
     details = [part for part in (posting.company, posting.location, posting.salary) if part]
     if details:
         print(" · ".join(details))
@@ -534,9 +535,16 @@ def _cmd_save(store: Store, args: argparse.Namespace) -> int:
 
 
 def _print_follow_up(application: Application, quiet_days: int) -> None:
-    """Print one stale application the way a chat message wants it."""
+    """Print one stale application the way a chat message wants it.
+
+    Here the leading ``#id`` is an application id, not a posting id: it is what
+    a reply like ``applied 4`` refers to. The two never collide in practice,
+    because a posting you have not saved is the only place ``save`` applies and
+    an application you already saved is the only place a status does.
+    """
     quiet = f"{quiet_days} day{'s' if quiet_days != 1 else ''}"
-    print(f"\n{application.role}")
+    reference = f"#{application.id}  " if application.id is not None else ""
+    print(f"\n{reference}{application.role}")
     print(f"{application.company} · {application.status} · {quiet} quiet")
     if application.url:
         print(application.url)

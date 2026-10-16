@@ -577,7 +577,7 @@ def test_a_digest_entry_is_built_for_a_phone(tmp_path, capsys):
     )
     out = capsys.readouterr().out
     assert code == 0
-    assert "\nJunior Developer\n" in out
+    assert "\n#1  Junior Developer\n" in out
     assert "Acme · London, UK · £30,000-£32,000" in out
     assert "https://example.com/job/1" in out
     assert "  1. " not in out  # the id-led terminal layout
@@ -683,6 +683,7 @@ def test_the_followup_digest_is_shaped_for_a_phone(tmp_path, capsys):
     assert main(["--db", db, "--config", config, "followups", "--after-days", "0", "--digest"]) == 0
     out = capsys.readouterr().out
     assert out.startswith("1 to chase")
+    assert "#1  Junior Dev" in out  # the handle a reply ("applied 1") uses
     assert "Acme · saved · 0 days quiet" in out
 
 
