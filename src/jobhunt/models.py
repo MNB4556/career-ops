@@ -24,6 +24,28 @@ def utc_now() -> str:
     return datetime.now(UTC).replace(microsecond=0).isoformat()
 
 
+def today() -> str:
+    """Return today's date in UTC as ``YYYY-MM-DD``."""
+    return datetime.now(UTC).date().isoformat()
+
+
+def days_since(moment: str | None) -> int | None:
+    """Return whole days since *moment*, an ISO timestamp or date.
+
+    ``None`` when *moment* is missing or unparseable: a hand-typed date should
+    never be able to break a listing.
+    """
+    if not moment:
+        return None
+    try:
+        then = datetime.fromisoformat(moment)
+    except ValueError:
+        return None
+    if then.tzinfo is None:
+        then = then.replace(tzinfo=UTC)
+    return max(0, (datetime.now(UTC) - then).days)
+
+
 def validate_status(status: str) -> str:
     """Normalise *status*, raising ``ValueError`` if it is not a known status."""
     normalised = status.strip().lower()
@@ -44,6 +66,7 @@ class Application:
     source: str | None = None
     applied_on: str | None = None
     notes: str | None = None
+    posting_id: int | None = None
     id: int | None = None
     created_at: str | None = None
     updated_at: str | None = None
@@ -121,5 +144,33 @@ class Posting:
         return f"{normalise(self.company)}|{normalise(self.title)}"
 
     def to_application(self) -> Application:
-        """Promote this posting into a saved application."""
-        return Application(company=self.company, role=self.title, url=self.url, source=self.source)
+        """Promote this posting into a saved application, keeping the link.
+
+        The advert is the authoritative record of what you applied for, so the
+        application remembers which posting it came from and can show it again.
+        """
+        return Application(
+            company=self.company,
+            role=self.title,
+            url=self.url,
+            source=self.source,
+            posting_id=self.id,
+        )
+
+
+@dataclass
+class Event:
+    """One transition on an application, and when it happened.
+
+    Keeping the transitions rather than only the current status is what makes
+    "applied twelve days ago and heard nothing since" answerable at all.
+    """
+
+    application_id: int
+    status: str
+    note: str | None = None
+    at: str | None = None
+    id: int | None = None
+
+    def __post_init__(self) -> None:
+        self.status = validate_status(self.status)

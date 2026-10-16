@@ -3,4 +3,4 @@
 from jobhunt.models import STATUSES, Application, Posting
 
 __all__ = ["STATUSES", "Application", "Posting"]
-__version__ = "0.5.0"
+__version__ = "0.6.0"

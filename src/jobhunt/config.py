@@ -33,6 +33,7 @@ class Config:
     adzuna_where: str | None = None
     sources: list[str] = field(default_factory=lambda: list(SOURCES))
     limit: int = 50
+    follow_up_days: int = 10
 
     def criteria(self) -> Criteria:
         """Return these settings as filter :class:`Criteria`."""
@@ -62,6 +63,7 @@ class Config:
             "adzuna_where": self.adzuna_where,
             "sources": list(self.sources),
             "limit": self.limit,
+            "follow_up_days": self.follow_up_days,
         }
 
     @classmethod
