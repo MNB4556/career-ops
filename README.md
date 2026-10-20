@@ -1,6 +1,6 @@
-# job-hunt
+# career-ops
 
-[![CI](https://github.com/MNB4556/job-hunt/actions/workflows/ci.yml/badge.svg)](https://github.com/MNB4556/job-hunt/actions/workflows/ci.yml)
+[![CI](https://github.com/MNB4556/career-ops/actions/workflows/ci.yml/badge.svg)](https://github.com/MNB4556/career-ops/actions/workflows/ci.yml)
 
 A small, local-first job search tool. It finds adverts on free job boards,
 filters and ranks them against what you are actually looking for, and tracks
@@ -8,10 +8,12 @@ what you applied to. Everything lives in a single SQLite file on your machine �
 no server, no telemetry, no account. One source (Adzuna, the UK one) needs a
 free API key; the rest need nothing at all.
 
+The project is `career-ops`; the command you run is `jobhunt`.
+
 ## Why
 
 Job hunting means juggling dozens of applications across tabs, emails and
-notes, on top of the tedium of re-reading the same boards. `job-hunt` does the
+notes, on top of the tedium of re-reading the same boards. `career-ops` does the
 boring half — searching and filtering — and keeps one honest list of what you
 applied to and where each application stands. It is deliberately tiny so you
 can read the whole thing, and it has no runtime dependencies beyond the Python
@@ -20,8 +22,8 @@ standard library.
 ## Install
 
 ```bash
-git clone https://github.com/MNB4556/job-hunt.git
-cd job-hunt
+git clone https://github.com/MNB4556/career-ops.git
+cd career-ops
 python -m venv .venv
 . .venv/Scripts/activate      # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"
@@ -261,7 +263,7 @@ engineer"); your locations, salary band, and exclusions are still applied
 locally and are never sent.
 
 Your applications, notes, and anything you put in them are never sent anywhere:
-`job-hunt` has no account to sync to and no code that phones home.
+`career-ops` has no account to sync to and no code that phones home.
 
 ## Development
 
@@ -276,4 +278,4 @@ the suite runs offline.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+All rights reserved — see [LICENSE](LICENSE).
