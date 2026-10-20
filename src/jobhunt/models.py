@@ -143,15 +143,20 @@ class Posting:
         """A content fingerprint used to spot one role across several boards."""
         return f"{normalise(self.company)}|{normalise(self.title)}"
 
-    def to_application(self) -> Application:
-        """Promote this posting into a saved application, keeping the link.
+    def to_application(self, status: str = "saved") -> Application:
+        """Promote this posting into an application, keeping the link.
 
         The advert is the authoritative record of what you applied for, so the
         application remembers which posting it came from and can show it again.
+
+        *status* exists because an advert is often recorded only once you have
+        already applied to it, in which case it should be born ``applied``
+        rather than passing through ``saved`` first.
         """
         return Application(
             company=self.company,
             role=self.title,
+            status=status,
             url=self.url,
             source=self.source,
             posting_id=self.id,

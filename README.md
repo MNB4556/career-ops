@@ -36,7 +36,7 @@ The project is `career-ops`; the command you run is `jobhunt`.
 | Data | one SQLite file, `~/.jobhunt/jobhunt.db` |
 | Sources | Adzuna · Remotive · Arbeitnow · Remote OK · Hacker News |
 | Interface | a CLI, plus an optional WhatsApp digest |
-| Tests | 135, all offline, run against saved payloads |
+| Tests | 138, all offline, run against saved payloads |
 
 ## What a digest looks like
 
@@ -121,6 +121,9 @@ jobhunt matches
 
 # Turn an interesting posting into a tracked application
 jobhunt save 42
+
+# Already applied? One number, no saving first, no second step
+jobhunt applied 42
 ```
 
 `--locations` is an OR-list, and a **remote** advert always survives it:
@@ -132,6 +135,12 @@ guessing at.
 `fetch` prints the **posting id** next to each result, and `save` takes exactly
 that id. Nothing is applied to automatically — `jobhunt` is a filter, not an
 autopilot, and the link in each result is authoritative.
+
+`applied` takes that same id at the moment you send the application, creating
+the track if the advert was never saved. It exists because applying is exactly
+where a second step gets forgotten: you have the `#id` in front of you for the
+next thirty seconds and not for the next three days. It takes several ids at
+once (`jobhunt applied 41 42 47`) so a morning's batch is one message.
 
 Criteria are saved to `~/.jobhunt/config.json`, so an unattended run needs no
 flags at all. Any flag you pass overrides the saved value for that run only.
@@ -242,8 +251,8 @@ are useful on a terminal and noise in a chat message. The advert's own link
 remains the authoritative way in.
 
 The `#id` stays because it is what a reply refers to. With the agent wired up to
-the tracker, "save 13" acts on the entry numbered `#13` in the message, and the
-same handle on a follow-up takes "applied 4". The link is still the way in for
+the tracker, "save 13" acts on the entry numbered `#13` in the message, and
+"applied 13" records that you sent it. The link is still the way in for
 everything else.
 
 The same shape is used by `jobhunt followups --digest`, which is the other half
@@ -259,6 +268,9 @@ jobhunt add --company "Acme" --role "Backend Engineer" --status applied \
 
 # Or promote something you found, keeping the advert attached
 jobhunt save 42
+
+# Or record that you already applied, in one step
+jobhunt applied 42
 
 # See everything, or just the ones you're still waiting on
 jobhunt list

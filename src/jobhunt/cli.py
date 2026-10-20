@@ -125,6 +125,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     save.add_argument("id", type=int)
 
+    applied = subparsers.add_parser(
+        "applied",
+        help="record that you applied, using the posting id from a digest",
+    )
+    applied.add_argument("ids", nargs="+", type=int, metavar="id")
+
     criteria = subparsers.add_parser("criteria", help="show or change the saved search settings")
     criteria.add_argument("--keywords", nargs="*")
     criteria.add_argument("--require", nargs="*")
@@ -250,6 +256,7 @@ def main(argv: list[str] | None = None) -> int:
             "fetch": _cmd_fetch,
             "matches": _cmd_matches,
             "save": _cmd_save,
+            "applied": _cmd_applied,
             "followups": _cmd_followups,
         }
         return handlers[args.command](store, args)
@@ -530,17 +537,53 @@ def _cmd_save(store: Store, args: argparse.Namespace) -> int:
         return 0
     application = store.add(posting.to_application())
     print(f"Saved application #{application.id}: {application.company} - {application.role}")
-    print(f"Move it on with: jobhunt update {application.id} --status applied")
+    print(f"Mark it applied later with: jobhunt applied {posting.id}")
     return 0
+
+
+def _cmd_applied(store: Store, args: argparse.Namespace) -> int:
+    """Record that postings were applied to, creating the track where it is new.
+
+    The number in a digest is a posting id, and applying is the moment the
+    record is easiest to make: you have just sent the application and the
+    advert is still open. So this takes that one number and does both halves of
+    the job -- an advert with no application is not an error, it is an
+    application that was never saved, and it is born ``applied`` rather than
+    passing through ``saved`` first.
+
+    Several ids are accepted so a morning's batch is one message.
+    """
+    failures = 0
+    recorded = 0
+    for posting_id in args.ids:
+        posting = store.get_posting(posting_id)
+        if posting is None:
+            print(f"No posting with id {posting_id}", file=sys.stderr)
+            failures += 1
+            continue
+        application = store.find_by_posting(posting_id)
+        if application is None:
+            application = store.add(posting.to_application("applied"))
+        elif application.status == "applied":
+            print(f"Already applied: #{posting_id} {application.company} - {application.role}")
+            continue
+        else:
+            application = store.update_status(application.id, "applied")
+        recorded += 1
+        print(f"Applied #{posting_id} {application.company} - {application.role}")
+    if len(args.ids) > 1:
+        print(f"{recorded} marked applied, {failures} not found.")
+    return 1 if failures else 0
 
 
 def _print_follow_up(application: Application, quiet_days: int) -> None:
     """Print one stale application the way a chat message wants it.
 
-    Here the leading ``#id`` is an application id, not a posting id: it is what
-    a reply like ``applied 4`` refers to. The two never collide in practice,
-    because a posting you have not saved is the only place ``save`` applies and
-    an application you already saved is the only place a status does.
+    Here the leading ``#id`` is an application id, not a posting id: these are
+    applications already in flight, so the natural reply is a status change
+    (``update 4 --status interview``), not ``applied``. That verb deliberately
+    speaks in posting ids, because a digest prints posting ids and ``applied``
+    exists to remove the lookup step rather than add one.
     """
     quiet = f"{quiet_days} day{'s' if quiet_days != 1 else ''}"
     reference = f"#{application.id}  " if application.id is not None else ""
