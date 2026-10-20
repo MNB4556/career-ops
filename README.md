@@ -38,6 +38,44 @@ The project is `career-ops`; the command you run is `jobhunt`.
 | Interface | a CLI, plus an optional WhatsApp digest |
 | Tests | 135, all offline, run against saved payloads |
 
+## What a digest looks like
+
+`jobhunt fetch --digest --top 5` keeps only what a phone can act on: the handle
+a reply refers to, the role, then company, place and pay on one line, then the
+advert itself.
+
+```text
+Job digest: 3 new matches
+
+#274  Junior Backend Engineer
+Northwind Systems · London, UK · £38,000-£45,000
+https://example.com/adverts/northwind-junior-backend
+
+#277  Graduate Software Engineer
+Halden Labs · Remote (UK) · £32,000-£36,000
+https://example.com/adverts/halden-graduate-engineer
+
+#281  Software Engineer (Entry Level)
+Meridian Retail Group · Manchester, UK
+https://example.com/adverts/meridian-entry-level-swe
+
+... and 4 more.
+
+Source: Adzuna (https://www.adzuna.co.uk/)
+```
+
+Those postings are invented. Note `#281`: it carries no pay line because the
+advert never stated a salary, and it is shown anyway rather than hidden for the
+omission. The attribution line is not optional — Adzuna's terms require it
+wherever its data is published, and a digest sent to a phone counts.
+
+> [!IMPORTANT]
+> **It is a filter, not an autopilot.** The digest stops at a shortlist. Nothing
+> is applied to on your behalf, no form is filled in, and nothing is sent to an
+> employer. The `#id` is a handle for *you* to reply with — `save 13`,
+> `applied 4` — and the advert's own link remains the authoritative way in. A
+> ranking can be wrong; the link wins every time.
+
 ## Why
 
 Job hunting means juggling dozens of applications across tabs, emails and
