@@ -2,13 +2,41 @@
 
 [![CI](https://github.com/MNB4556/career-ops/actions/workflows/ci.yml/badge.svg)](https://github.com/MNB4556/career-ops/actions/workflows/ci.yml)
 
-A small, local-first job search tool. It finds adverts on free job boards,
-filters and ranks them against what you are actually looking for, and tracks
-what you applied to. Everything lives in a single SQLite file on your machine —
-no server, no telemetry, no account. One source (Adzuna, the UK one) needs a
-free API key; the rest need nothing at all.
+**A local-first job search CLI and application tracker.** It finds adverts on
+free job boards, filters and ranks them against what you are actually looking
+for, and keeps one honest list of what you applied to and where it stands.
+Everything lives in a single SQLite file on your machine — no server, no
+telemetry, no account. One source (Adzuna, the UK one) needs a free API key;
+the rest need nothing at all.
 
 The project is `career-ops`; the command you run is `jobhunt`.
+
+## What it does
+
+- **Searches five boards** — Adzuna (UK), Remotive, Arbeitnow, Remote OK and
+  Hacker News — from one command.
+- **Filters honestly** — whole-word matches, two independent AND-ed groups,
+  locations, remote, and stated salaries only. `intern` never drags in
+  `internal`, and an advert that stays silent about pay is never hidden for
+  being silent.
+- **Remembers your criteria**, so an unattended run needs no flags at all.
+- **Tracks every application** through `saved → applied → screening →
+  interview → offer`, with each move recorded as it happens rather than only
+  the final state.
+- **Chases silence**, because most applications die of that rather than
+  rejection — and says *nothing at all* when there is nothing to chase.
+- **Sends a phone-shaped digest**, cut down to a `#id`, the role, the place,
+  the pay and the link, so the scheduled version is worth reading.
+
+## At a glance
+
+| | |
+|---|---|
+| Runtime | Python 3.11+, no dependencies beyond the standard library |
+| Data | one SQLite file, `~/.jobhunt/jobhunt.db` |
+| Sources | Adzuna · Remotive · Arbeitnow · Remote OK · Hacker News |
+| Interface | a CLI, plus an optional WhatsApp digest |
+| Tests | 135, all offline, run against saved payloads |
 
 ## Why
 
