@@ -26,7 +26,7 @@ from urllib.parse import urlencode
 from jobhunt.credentials import AdzunaCredentials, load_adzuna, redact
 from jobhunt.models import Posting
 
-USER_AGENT = "jobhunt/0.1 (+https://github.com/MNB4556/job-hunt)"
+USER_AGENT = "jobhunt/0.7.0 (+https://github.com/MNB4556/career-ops)"
 TIMEOUT_SECONDS = 20
 
 SOURCES: tuple[str, ...] = ("adzuna", "remotive", "arbeitnow", "remoteok", "hn")
