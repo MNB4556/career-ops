@@ -609,6 +609,52 @@ def test_save_links_the_advert_and_refuses_a_second_save(tmp_path, capsys):
     assert len(json.loads(capsys.readouterr().out)) == 1
 
 
+def test_applied_records_a_posting_that_was_never_saved(tmp_path, capsys):
+    """Applying is the common case, so it must not require saving first."""
+    payload, db, config = _fixture(tmp_path)
+    main(["--db", db, "--config", config, "fetch", "--from-file", payload, "--source", "remotive"])
+    capsys.readouterr()
+
+    assert main(["--db", db, "--config", config, "applied", "1"]) == 0
+    assert "Applied #1 Acme - Python Developer" in capsys.readouterr().out
+
+    assert main(["--db", db, "--config", config, "list", "--json"]) == 0
+    applications = json.loads(capsys.readouterr().out)
+    assert len(applications) == 1
+    assert applications[0]["status"] == "applied"
+    assert applications[0]["applied_on"] is not None
+    assert applications[0]["posting_id"] == 1
+
+
+def test_applied_advances_a_saved_application_without_duplicating_it(tmp_path, capsys):
+    payload, db, config = _fixture(tmp_path)
+    main(["--db", db, "--config", config, "fetch", "--from-file", payload, "--source", "remotive"])
+    main(["--db", db, "--config", config, "save", "1"])
+    capsys.readouterr()
+
+    assert main(["--db", db, "--config", config, "applied", "1"]) == 0
+    assert "Applied #1 Acme - Python Developer" in capsys.readouterr().out
+
+    assert main(["--db", db, "--config", config, "list", "--json"]) == 0
+    applications = json.loads(capsys.readouterr().out)
+    assert len(applications) == 1
+    assert applications[0]["status"] == "applied"
+
+
+def test_applied_takes_a_batch_and_reports_the_missing_id(tmp_path, capsys):
+    payload, db, config = _fixture(tmp_path)
+    main(["--db", db, "--config", config, "fetch", "--from-file", payload, "--source", "remotive"])
+    capsys.readouterr()
+
+    assert main(["--db", db, "--config", config, "applied", "1", "2", "999"]) == 1
+    captured = capsys.readouterr()
+    assert "No posting with id 999" in captured.err
+    assert "2 marked applied, 1 not found." in captured.out
+
+    assert main(["--db", db, "--config", config, "list", "--json"]) == 0
+    assert len(json.loads(capsys.readouterr().out)) == 2
+
+
 def test_show_prints_the_advert_and_the_history(tmp_path, capsys):
     payload, db, config = _fixture(tmp_path)
     main(["--db", db, "--config", config, "fetch", "--from-file", payload, "--source", "remotive"])
