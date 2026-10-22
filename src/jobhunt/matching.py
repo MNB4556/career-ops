@@ -8,18 +8,28 @@ and ``intern`` matches ``interns`` and ``internship``.
 ``keywords`` and ``require`` are separate OR-groups and *both* must be
 satisfied, which is what lets a search ask for "software roles **and** a junior
 level" while rejecting a senior role that only matches the first group.
+
+An advert that names a future year - "2027 Summer Internship" - is not a job
+you can start now, so it is ranked below an otherwise equal one that is.
 """
 
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from functools import lru_cache
 
 from jobhunt.models import Posting, normalise
 
 # Trailing forms that should still count as the same term.
 _INFLECTIONS = ("s", "es", "ed", "ing", "ship", "ships")
+
+_YEAR = re.compile(r"\b(20\d{2})\b")
+
+# What a later start costs. Roughly one strong term hit, so a role starting next
+# year never outranks a similar one that starts now, while still beating nothing.
+_DEFERRED_PENALTY = 4
 
 _NEVER = re.compile(r"(?!)")
 
@@ -39,6 +49,23 @@ def _term_pattern(term: str) -> re.Pattern[str]:
 def _contains(terms: tuple[str, ...], text: str) -> bool:
     """Whether any of *terms* appears in *text* on a word boundary."""
     return any(_term_pattern(term).search(text) for term in terms)
+
+
+def deferred_year(posting: Posting, *, now_year: int | None = None) -> int | None:
+    """Return the year *posting* starts, if that is later than *now_year*.
+
+    A job advert only writes a future year when it is saying when the work
+    begins: nothing about a company's past can be dated after today, so the
+    earliest year past this one is a start date. That is worth knowing most in
+    autumn, when the boards fill with "Summer 2027" adverts a year ahead.
+
+    The description is searched as well as the title because adverts such as
+    "Summer Intern Software Engineer" often carry the date only in the body.
+    """
+    reference = now_year if now_year is not None else datetime.now(UTC).year
+    text = f"{posting.title} {posting.description or ''}"
+    later = sorted(int(year) for year in _YEAR.findall(text) if int(year) > reference)
+    return later[0] if later else None
 
 
 @dataclass(frozen=True)
@@ -126,8 +153,13 @@ class Criteria:
             and posting.salary_min > self.salary_max
         )
 
-    def score(self, posting: Posting) -> int:
-        """Rank an already-matching *posting*; a title hit is worth most."""
+    def score(self, posting: Posting, *, now_year: int | None = None) -> int:
+        """Rank an already-matching *posting*; a title hit is worth most.
+
+        A role that cannot start until a later year loses :data:`_DEFERRED_PENALTY`,
+        which is what pushes next year's internship intake below the jobs on
+        offer today.
+        """
         title = normalise(posting.title)
         searchable = self._searchable(posting)
         score = 0
@@ -141,12 +173,22 @@ class Criteria:
         score += sum(1 for term in self.locations if _term_pattern(term).search(location))
         if posting.remote:
             score += 1
+        if deferred_year(posting, now_year=now_year) is not None:
+            # Never below zero: a negative score would fall under the default
+            # minimum and delete the advert rather than rank it last.
+            score = max(0, score - _DEFERRED_PENALTY)
         return score
 
-    def rank(self, postings: list[Posting]) -> list[tuple[Posting, int]]:
+    def rank(
+        self, postings: list[Posting], *, now_year: int | None = None
+    ) -> list[tuple[Posting, int]]:
         """Filter *postings* and return ``(posting, score)`` pairs, best first.
 
         Ties keep their original order so results stay stable between runs.
         """
-        scored = [(posting, self.score(posting)) for posting in postings if self.matches(posting)]
+        scored = [
+            (posting, self.score(posting, now_year=now_year))
+            for posting in postings
+            if self.matches(posting)
+        ]
         return sorted(scored, key=lambda pair: pair[1], reverse=True)

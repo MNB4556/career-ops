@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 
 from jobhunt import sources as source_module
 from jobhunt.cli import main
@@ -624,6 +625,43 @@ def test_a_digest_entry_is_built_for_a_phone(tmp_path, capsys):
     assert "  1. " not in out  # the id-led terminal layout
     assert "jobhunt save" not in out
     assert "Source: Adzuna" in out
+
+
+def test_a_digest_says_when_a_role_starts(tmp_path, capsys):
+    """Next year's intake must not read like a job that is open now."""
+    next_year = datetime.now(UTC).year + 1
+    payload = {
+        "results": [
+            {
+                "id": "1",
+                "title": f"Summer Internship {next_year}",
+                "company": {"display_name": "Acme"},
+                "location": {"display_name": "London, UK"},
+                "redirect_url": "https://example.com/job/1",
+                "description": "<p>python</p>",
+            }
+        ]
+    }
+    path = tmp_path / "deferred.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    code = main(
+        [
+            "--db",
+            str(tmp_path / "deferred.db"),
+            "--config",
+            str(tmp_path / "deferred-cfg.json"),
+            "fetch",
+            "--from-file",
+            str(path),
+            "--source",
+            "adzuna",
+            "--digest",
+        ]
+    )
+    out = capsys.readouterr().out
+    assert code == 0
+    assert f"Acme · London, UK · starts {next_year}" in out
 
 
 def test_criteria_persists_the_adzuna_place(tmp_path, capsys):
