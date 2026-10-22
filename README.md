@@ -69,6 +69,12 @@ advert never stated a salary, and it is shown anyway rather than hidden for the
 omission. The attribution line is not optional — Adzuna's terms require it
 wherever its data is published, and a digest sent to a phone counts.
 
+Ranking prefers a job you could start now. An advert that names a year still to
+come — `2027 Summer Internship` — is stating when the work begins, so it is
+ranked below an otherwise similar role and labelled `starts 2027` in the digest.
+It is demoted, not hidden: next year's intake is worth knowing about, just not
+before the openings you can apply to today.
+
 > [!IMPORTANT]
 > **It is a filter, not an autopilot.** The digest stops at a shortlist. Nothing
 > is applied to on your behalf, no form is filled in, and nothing is sent to an

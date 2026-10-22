@@ -13,7 +13,7 @@ from jobhunt import sources as source_module
 from jobhunt.config import DEFAULT_CONFIG_PATH, Config
 from jobhunt.config import load as load_config
 from jobhunt.config import save as save_config
-from jobhunt.matching import Criteria
+from jobhunt.matching import Criteria, deferred_year
 from jobhunt.models import STATUSES, Application, Event, Posting, days_since
 from jobhunt.sources import SOURCES, SourceError
 from jobhunt.storage import Store
@@ -198,6 +198,9 @@ def _print_posting(posting: Posting, *, tags: bool = True) -> None:
         print(f"      {posting.url}")
     if posting.salary:
         print(f"      {posting.salary}")
+    start = deferred_year(posting)
+    if start is not None:
+        print(f"      starts {start}")
     if tags and posting.tags:
         print(f"      {', '.join(posting.tags[:8])}")
 
@@ -206,13 +209,17 @@ def _print_digest_posting(posting: Posting) -> None:
     """Print one advert the way a chat message wants it.
 
     Four things and nothing else: the role, then company, place and pay on one
-    line, then the link. The leading ``#id`` is the handle a reply uses
+    line, then the link. A role that cannot start until a later year says so on
+    that line, because it is the one fact that decides whether it is worth
+    reading at all. The leading ``#id`` is the handle a reply uses
     (``save 13``); the terminal view leads with the same number because
     ``jobhunt save`` needs it, but a message has no room for the padded layout.
     """
     reference = f"#{posting.id}  " if posting.id is not None else ""
     print(f"\n{reference}{posting.title}")
-    details = [part for part in (posting.company, posting.location, posting.salary) if part]
+    start = deferred_year(posting)
+    when = f"starts {start}" if start is not None else None
+    details = [part for part in (posting.company, posting.location, when, posting.salary) if part]
     if details:
         print(" · ".join(details))
     if posting.url:

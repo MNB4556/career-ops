@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from jobhunt.matching import Criteria
+from datetime import UTC, datetime
+
+from jobhunt.matching import Criteria, deferred_year
 from jobhunt.models import Posting
 
 
@@ -185,3 +187,42 @@ def test_a_salary_on_the_boundary_is_kept():
 
 def test_no_salary_criteria_ignores_salaries_entirely():
     assert Criteria().matches(posting(salary_min=500000, salary_max=900000, salary_currency="GBP"))
+
+
+def test_a_later_start_year_is_reported():
+    next_year = datetime.now(UTC).year + 1
+    assert deferred_year(posting(title=f"Summer Internship {next_year}")) == next_year
+
+
+def test_the_earliest_later_year_wins():
+    next_year = datetime.now(UTC).year + 1
+    found = deferred_year(posting(title=f"Graduate Programme {next_year}-{next_year + 1}"))
+    assert found == next_year
+
+
+def test_this_year_and_the_past_are_not_start_dates():
+    """Only a year still to come means the job is not open yet."""
+    this_year = datetime.now(UTC).year
+    assert deferred_year(posting(title=f"Graduate Programme {this_year}")) is None
+    assert deferred_year(posting(title="Engineer", description="Founded 1998")) is None
+
+
+def test_a_start_date_only_in_the_body_is_found():
+    next_year = datetime.now(UTC).year + 1
+    assert deferred_year(posting(description=f"Programme starts: June {next_year}")) == next_year
+
+
+def test_a_role_starting_later_ranks_below_one_starting_now():
+    criteria = Criteria(keywords=("python",))
+    soon = posting(title="Python Developer")
+    later = posting(title="Python Developer 2027", company="Beta")
+
+    ranked = criteria.rank([later, soon], now_year=2026)
+
+    assert [found.title for found, _ in ranked] == ["Python Developer", "Python Developer 2027"]
+
+
+def test_a_role_starting_later_is_still_matched():
+    """Demoted, not hidden: next year's intake is still worth seeing."""
+    criteria = Criteria(keywords=("python",))
+    assert criteria.matches(posting(title="Python Intern 2027"))
