@@ -425,6 +425,7 @@ def _cmd_fetch(store: Store, args: argparse.Namespace) -> int:
     queries = args.adzuna_queries if args.adzuna_queries is not None else config.adzuna_queries
     where = args.adzuna_where if args.adzuna_where is not None else config.adzuna_where
 
+    failed: list[str] = []
     if args.from_file:
         if len(sources) != 1:
             print("--from-file needs exactly one --source", file=sys.stderr)
@@ -442,6 +443,7 @@ def _cmd_fetch(store: Store, args: argparse.Namespace) -> int:
             try:
                 fetched.extend(source_module.fetch(name, limit, queries, where))
             except (SourceError, ValueError) as exc:
+                failed.append(name)
                 failures.append(f"{name}: {exc}")
         for failure in failures:
             print(f"warning: {failure}", file=sys.stderr)
@@ -475,9 +477,14 @@ def _cmd_fetch(store: Store, args: argparse.Namespace) -> int:
 
     if args.digest:
         print(f"Job digest: {len(ranked)} new match{'es' if len(ranked) != 1 else ''}")
+        if failed:
+            print(
+                f"Note: {', '.join(failed)} did not respond, so this digest may be missing adverts."
+            )
     else:
+        reached = [name for name in sources if name not in failed]
         print(
-            f"Fetched {len(fetched)} postings from {', '.join(sources)} "
+            f"Fetched {len(fetched)} postings from {', '.join(reached)} "
             f"({len(fresh)} new). {len(ranked)} new match"
             f"{'es' if len(ranked) != 1 else ''}."
         )

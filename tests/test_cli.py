@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import json
 
+from jobhunt import sources as source_module
 from jobhunt.cli import main
+from jobhunt.sources import SourceError
 
 
 def test_add_then_list_json(tmp_path, capsys):
@@ -187,6 +189,45 @@ def test_fetch_missing_file_returns_error(tmp_path, capsys):
     )
     assert code == 2
     assert "could not read" in capsys.readouterr().err
+
+
+def test_digest_names_a_source_that_did_not_respond(tmp_path, capsys, monkeypatch):
+    """A partial fetch must not read as a complete digest."""
+    _payload, db, config = _fixture(tmp_path)
+    stored = source_module.parse("remotive", REMOTIVE_FIXTURE)
+
+    def fake_fetch(name, limit=50, queries=(), where=None):
+        if name == "adzuna":
+            raise SourceError("HTTP Error 503: Service Temporarily Unavailable")
+        return list(stored)
+
+    monkeypatch.setattr(source_module, "fetch", fake_fetch)
+    args = [
+        "--db",
+        db,
+        "--config",
+        config,
+        "fetch",
+        "--source",
+        "adzuna",
+        "--source",
+        "remotive",
+        "--digest",
+    ]
+    assert main(args) == 0
+    out = capsys.readouterr().out
+    assert "Job digest:" in out
+    assert "Note: adzuna did not respond" in out
+
+
+def test_digest_stays_quiet_when_every_source_answers(tmp_path, capsys, monkeypatch):
+    _payload, db, config = _fixture(tmp_path)
+    stored = source_module.parse("remotive", REMOTIVE_FIXTURE)
+    monkeypatch.setattr(source_module, "fetch", lambda *a, **k: list(stored))
+
+    args = ["--db", db, "--config", config, "fetch", "--source", "remotive", "--digest"]
+    assert main(args) == 0
+    assert "did not respond" not in capsys.readouterr().out
 
 
 def test_save_promotes_a_posting(tmp_path, capsys):

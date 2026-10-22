@@ -36,7 +36,7 @@ The project is `career-ops`; the command you run is `jobhunt`.
 | Data | one SQLite file, `~/.jobhunt/jobhunt.db` |
 | Sources | Adzuna · Remotive · Arbeitnow · Remote OK · Hacker News |
 | Interface | a CLI, plus an optional WhatsApp digest |
-| Tests | 138, all offline, run against saved payloads |
+| Tests | 140, all offline, run against saved payloads |
 
 ## What a digest looks like
 
@@ -258,6 +258,11 @@ everything else.
 The same shape is used by `jobhunt followups --digest`, which is the other half
 of the loop: one scheduled job brings new adverts, the other brings back the
 applications you have gone quiet on.
+
+If a board cannot be reached, the digest names it in the message rather than
+quietly arriving short. A partial list that looks complete is worse than one
+that admits the gap: you would apply to what arrived, conclude the market was
+thin, and never learn that the best source was down.
 
 ## Tracking applications
 
