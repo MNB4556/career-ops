@@ -241,3 +241,18 @@ def test_a_role_starting_later_is_still_matched():
     """Demoted, not hidden: next year's intake is still worth seeing."""
     criteria = Criteria(keywords=("python",))
     assert criteria.matches(posting(title="Python Intern 2027"))
+
+
+def test_hide_deferred_drops_a_role_that_cannot_start_yet():
+    """Wanting work now is a different question from next year's intake."""
+    next_year = datetime.now(UTC).year + 1
+    criteria = Criteria(keywords=("engineer",), hide_deferred=True)
+    assert not criteria.matches(posting(title=f"Engineering Intern {next_year}"))
+    assert criteria.matches(posting(title="Engineering Intern"))
+
+
+def test_deferred_roles_survive_unless_asked_to_hide_them():
+    next_year = datetime.now(UTC).year + 1
+    assert Criteria(keywords=("engineer",)).matches(
+        posting(title=f"Engineering Intern {next_year}")
+    )

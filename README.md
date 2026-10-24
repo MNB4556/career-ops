@@ -73,7 +73,8 @@ Ranking prefers a job you could start now. An advert that names a year still to
 come — `2027 Summer Internship` — is stating when the work begins, so it is
 ranked below an otherwise similar role and labelled `starts 2027` in the digest.
 It is demoted, not hidden: next year's intake is worth knowing about, just not
-before the openings you can apply to today.
+before the openings you can apply to today. If you would rather not see them at
+all, `jobhunt criteria --hide-deferred` drops them from results entirely.
 
 > [!IMPORTANT]
 > **It is a filter, not an autopilot.** The digest stops at a shortlist. Nothing

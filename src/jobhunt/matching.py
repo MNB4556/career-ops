@@ -82,6 +82,7 @@ class Criteria:
     exclude: tuple[str, ...] = ()
     locations: tuple[str, ...] = ()
     remote_only: bool = False
+    hide_deferred: bool = False
     salary_min: int | None = None
     salary_max: int | None = None
     salary_currency: str | None = None
@@ -123,6 +124,11 @@ class Criteria:
         if _contains(self.exclude, searchable):
             return False
         if self.remote_only and not posting.remote:
+            return False
+        if self.hide_deferred and deferred_year(posting) is not None:
+            # Demotion is the default because next year's intake is still worth
+            # knowing about. This switch is for when it is not: a search for
+            # work you can start now, where a "Summer 2027" advert is only noise.
             return False
         if not self._salary_fits(posting):
             return False
