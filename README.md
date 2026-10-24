@@ -160,6 +160,12 @@ Terms match **whole words**, not bare substrings, so `intern` will not drag in
 satisfied. That is what lets you ask for software roles *and* a junior level,
 instead of either term matching on its own.
 
+One of those terms must appear where the advert names the job — its title, or
+the board's tags — not only somewhere in the blurb. That is deliberate. An
+advert has to say what it is: a travel company describing itself as "an
+entry-level opportunity" is not a software role, and one phrase buried in a
+2,000-character description should not be enough to make it look like one.
+
 `--salary-min` / `--salary-max` only ever rule an advert out on a **stated**
 salary in the currency you have set (GBP by default). Adverts that stay silent
 about pay, or that pay in another currency, are kept: most junior roles never

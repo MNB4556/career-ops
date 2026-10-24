@@ -9,6 +9,11 @@ and ``intern`` matches ``interns`` and ``internship``.
 satisfied, which is what lets a search ask for "software roles **and** a junior
 level" while rejecting a senior role that only matches the first group.
 
+Either group can be satisfied by prose, but not *only* by prose: the advert's
+own title, or the board's tags, has to name the job or its level. Otherwise a
+travel company advertising an "entry-level opportunity" would count as a
+software role on the strength of one phrase in its blurb.
+
 An advert that names a future year - "2027 Summer Internship" - is not a job
 you can start now, so it is ranked below an otherwise equal one that is.
 """
@@ -103,6 +108,15 @@ class Criteria:
         )
         return normalise(" ".join(parts))
 
+    def _named(self, posting: Posting) -> str:
+        """How the advert names the job: its title, plus the board's tags.
+
+        The company is left out on purpose. Who is hiring says nothing about
+        what the job is, and a firm called "Graduate Software" would otherwise
+        make every one of its adverts look like a graduate software role.
+        """
+        return normalise(" ".join((posting.title, " ".join(posting.tags))))
+
     def matches(self, posting: Posting) -> bool:
         """Whether *posting* survives every configured constraint."""
         searchable = self._searchable(posting)
@@ -121,6 +135,12 @@ class Criteria:
             location = normalise(posting.location or "")
             if not location or not _contains(self.locations, location):
                 return False
+        terms = (*self.keywords, *self.require)
+        if terms and not _contains(terms, self._named(posting)):
+            # The advert has to say what the job is, or what level it is, where
+            # it names the job. A match that lives only in the blurb is how a
+            # travel agency's "entry-level opportunity" became a software role.
+            return False
         if self.keywords and not _contains(self.keywords, searchable):
             return False
         if self.require:

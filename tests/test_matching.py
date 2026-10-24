@@ -35,7 +35,21 @@ def test_empty_keyword_strings_are_ignored():
 
 
 def test_keyword_matches_are_case_insensitive():
-    assert Criteria(keywords=("python",)).matches(posting(description="Uses PYTHON daily"))
+    assert Criteria(keywords=("python",)).matches(posting(title="PYTHON Developer"))
+
+
+def test_a_keyword_only_in_the_description_is_not_enough():
+    """An advert has to name the job; prose is not evidence it is yours."""
+    advert = posting(
+        title="Travel Support Specialist",
+        company="Aisles & Abroad",
+        tags=("travel", "customer support", "non tech"),
+        description="This is an entry-level opportunity. We use python for reports.",
+    )
+    assert not Criteria(keywords=("python",)).matches(advert)
+    assert not Criteria(keywords=("software", "engineer", "developer"), require=("entry",)).matches(
+        advert
+    )
 
 
 def test_keywords_are_any_of_not_all():
@@ -68,8 +82,9 @@ def test_location_filter_matches_whole_words():
 
 def test_short_terms_do_not_match_unrelated_words():
     """The whole-word rule is what stops 'intern' matching 'internal'."""
-    assert not Criteria(require=("intern",)).matches(posting(description="internal tooling"))
-    assert Criteria(require=("intern",)).matches(posting(description="internal tooling, interns"))
+    criteria = Criteria(keywords=("engineer",), require=("intern",))
+    assert not criteria.matches(posting(title="Platform Engineer", description="internal tooling"))
+    assert criteria.matches(posting(title="Platform Engineer", description="summer interns"))
 
 
 def test_uk_does_not_match_ukraine():
@@ -81,7 +96,7 @@ def test_inflections_still_match():
     assert Criteria(keywords=("engineer",)).matches(posting(title="Engineering Manager role"))
     assert Criteria(keywords=("engineer",)).matches(posting(title="Backend Engineers wanted"))
     assert Criteria(require=("intern",)).matches(posting(title="Summer Internship"))
-    assert Criteria(keywords=("graduate",)).matches(posting(description="graduates welcome"))
+    assert Criteria(keywords=("graduate",)).matches(posting(title="Graduates welcome"))
 
 
 def test_location_filter_drops_onsite_roles_with_unknown_location():
@@ -136,8 +151,8 @@ def test_require_is_a_second_gate_beside_keywords():
 
 
 def test_require_alone_is_enough():
-    assert Criteria(require=("junior",)).matches(posting(description="a junior role"))
-    assert not Criteria(require=("junior",)).matches(posting())
+    assert Criteria(require=("junior",)).matches(posting(title="Junior Developer"))
+    assert not Criteria(require=("junior",)).matches(posting(title="Backend Engineer"))
 
 
 def test_blank_require_entries_are_ignored():
