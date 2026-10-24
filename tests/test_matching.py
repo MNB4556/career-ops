@@ -256,3 +256,19 @@ def test_deferred_roles_survive_unless_asked_to_hide_them():
     assert Criteria(keywords=("engineer",)).matches(
         posting(title=f"Engineering Intern {next_year}")
     )
+
+
+def test_exclude_ignores_the_description():
+    """A junior role that mentions senior colleagues is still a junior role."""
+    advert = posting(
+        title="Junior Software Engineer",
+        company="Citigroup",
+        description="Work alongside senior engineers and product managers.",
+    )
+    assert Criteria(keywords=("software",), exclude=("senior", "manager")).matches(advert)
+
+
+def test_exclude_checks_the_company():
+    assert not Criteria(exclude=("recruitment consultant",)).matches(
+        posting(company="Acme Recruitment Consultant Ltd")
+    )

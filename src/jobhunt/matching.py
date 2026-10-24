@@ -118,10 +118,20 @@ class Criteria:
         """
         return normalise(" ".join((posting.title, " ".join(posting.tags))))
 
+    def _labelled(self, posting: Posting) -> str:
+        """What the advert calls the job and who is advertising it.
+
+        This is where an excluded word has to appear. The description is left
+        out because it talks about everything else: a junior role "working
+        alongside senior engineers" is not a senior role, and a firm describing
+        itself as "a leading provider" is not a lead engineer.
+        """
+        return normalise(" ".join((posting.title, posting.company, " ".join(posting.tags))))
+
     def matches(self, posting: Posting) -> bool:
         """Whether *posting* survives every configured constraint."""
         searchable = self._searchable(posting)
-        if _contains(self.exclude, searchable):
+        if _contains(self.exclude, self._labelled(posting)):
             return False
         if self.remote_only and not posting.remote:
             return False
