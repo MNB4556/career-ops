@@ -26,6 +26,7 @@ class Config:
     exclude: list[str] = field(default_factory=list)
     locations: list[str] = field(default_factory=list)
     remote_only: bool = False
+    hide_deferred: bool = False
     salary_min: int | None = None
     salary_max: int | None = None
     salary_currency: str | None = "GBP"
@@ -43,6 +44,7 @@ class Config:
             exclude=tuple(self.exclude),
             locations=tuple(self.locations),
             remote_only=self.remote_only,
+            hide_deferred=self.hide_deferred,
             salary_min=self.salary_min,
             salary_max=self.salary_max,
             salary_currency=self.salary_currency,
@@ -56,6 +58,7 @@ class Config:
             "exclude": list(self.exclude),
             "locations": list(self.locations),
             "remote_only": self.remote_only,
+            "hide_deferred": self.hide_deferred,
             "salary_min": self.salary_min,
             "salary_max": self.salary_max,
             "salary_currency": self.salary_currency,

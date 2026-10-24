@@ -146,6 +146,15 @@ def build_parser() -> argparse.ArgumentParser:
     remote = criteria.add_mutually_exclusive_group()
     remote.add_argument("--remote-only", action="store_true", dest="remote_only", default=None)
     remote.add_argument("--no-remote-only", action="store_false", dest="remote_only")
+    start = criteria.add_mutually_exclusive_group()
+    start.add_argument(
+        "--hide-deferred",
+        action="store_true",
+        dest="hide_deferred",
+        default=None,
+        help="drop adverts that cannot start until a later year",
+    )
+    start.add_argument("--no-hide-deferred", action="store_false", dest="hide_deferred")
 
     return parser
 
@@ -374,6 +383,7 @@ def _resolve_criteria(args: argparse.Namespace, config: Config) -> Criteria:
         exclude=tuple(args.exclude if args.exclude is not None else config.exclude),
         locations=tuple(args.locations if args.locations is not None else config.locations),
         remote_only=args.remote_only if args.remote_only is not None else config.remote_only,
+        hide_deferred=config.hide_deferred,
         salary_min=args.salary_min if args.salary_min is not None else config.salary_min,
         salary_max=args.salary_max if args.salary_max is not None else config.salary_max,
         salary_currency=config.salary_currency,
@@ -688,6 +698,9 @@ def _cmd_criteria(_store: Store | None, args: argparse.Namespace) -> int:
         changed = True
     if args.remote_only is not None:
         config.remote_only = args.remote_only
+        changed = True
+    if args.hide_deferred is not None:
+        config.hide_deferred = args.hide_deferred
         changed = True
     # 0 clears a bound, so "--salary-max 0" means "no ceiling".
     if args.salary_min is not None:
