@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import urllib.error
 from typing import Any
 
 import pytest
@@ -10,6 +11,7 @@ from jobhunt.sources import (
     PARSERS,
     SOURCES,
     SourceError,
+    _get_json,
     fetch_adzuna,
     parse,
     parse_adzuna,
@@ -284,3 +286,63 @@ def test_adzuna_marks_the_remote_pass_as_remote(monkeypatch):
     (posting,) = fetch_adzuna(50, ["junior developer"], where="london")
     assert posting.remote is True
     assert posting.location == "Derry, Northern Ireland"
+
+
+class _Response:
+    """The little of an HTTP response that `_get_json` touches."""
+
+    def __init__(self, body: bytes) -> None:
+        self._body = body
+
+    def __enter__(self) -> _Response:
+        return self
+
+    def __exit__(self, *exc: object) -> bool:
+        return False
+
+    def read(self) -> bytes:
+        return self._body
+
+
+def test_a_transient_server_error_is_retried(monkeypatch):
+    """A board having a bad minute must not cost the whole day's search."""
+    attempts: list[int] = []
+
+    def fake_urlopen(request, timeout=None):
+        attempts.append(1)
+        if len(attempts) < 3:
+            raise urllib.error.HTTPError(request.full_url, 503, "Unavailable", None, None)
+        return _Response(b'{"results": []}')
+
+    monkeypatch.setattr("jobhunt.sources.urllib.request.urlopen", fake_urlopen)
+    monkeypatch.setattr("jobhunt.sources.RETRY_DELAY_SECONDS", 0)
+
+    assert _get_json("https://example.test/jobs") == {"results": []}
+    assert len(attempts) == 3
+
+
+def test_a_client_error_is_not_retried(monkeypatch):
+    """A bad query or a revoked key will fail the same way every time."""
+    attempts: list[int] = []
+
+    def fake_urlopen(request, timeout=None):
+        attempts.append(1)
+        raise urllib.error.HTTPError(request.full_url, 403, "Forbidden", None, None)
+
+    monkeypatch.setattr("jobhunt.sources.urllib.request.urlopen", fake_urlopen)
+    monkeypatch.setattr("jobhunt.sources.RETRY_DELAY_SECONDS", 0)
+
+    with pytest.raises(SourceError):
+        _get_json("https://example.test/jobs")
+    assert len(attempts) == 1
+
+
+def test_a_board_that_stays_down_reports_the_failure(monkeypatch):
+    def fake_urlopen(request, timeout=None):
+        raise urllib.error.HTTPError(request.full_url, 503, "Unavailable", None, None)
+
+    monkeypatch.setattr("jobhunt.sources.urllib.request.urlopen", fake_urlopen)
+    monkeypatch.setattr("jobhunt.sources.RETRY_DELAY_SECONDS", 0)
+
+    with pytest.raises(SourceError, match="503"):
+        _get_json("https://example.test/jobs")

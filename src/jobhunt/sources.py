@@ -16,6 +16,7 @@ from __future__ import annotations
 import html
 import json
 import re
+import time
 import urllib.error
 import urllib.request
 from collections.abc import Sequence
@@ -28,6 +29,12 @@ from jobhunt.models import Posting
 
 USER_AGENT = "jobhunt/0.7.0 (+https://github.com/MNB4556/career-ops)"
 TIMEOUT_SECONDS = 20
+
+# How hard to try when a board answers with a server error or drops the
+# connection. Three attempts over a few seconds covers the transient 503s
+# Adzuna returns under load, without stalling an unattended run.
+RETRY_ATTEMPTS = 3
+RETRY_DELAY_SECONDS = 2
 
 SOURCES: tuple[str, ...] = ("adzuna", "remotive", "arbeitnow", "remoteok", "hn")
 
@@ -61,13 +68,32 @@ class SourceError(RuntimeError):
 
 
 def _get_json(url: str) -> Any:
-    """Fetch *url* and decode the JSON body, wrapping failures in `SourceError`."""
+    """Fetch *url* and decode the JSON body, wrapping failures in `SourceError`.
+
+    A board having a bad minute should not cost a whole day's search, and one
+    failed request currently costs more than itself: Adzuna needs eight of them
+    per fetch, and the first failure abandons the seven that would have worked.
+    So a 5xx or a dropped connection is retried a couple of times first.
+
+    A 4xx is not retried. It means the request itself is wrong - a bad query, a
+    revoked key - and repeating it would only spend the same quota to fail the
+    same way.
+    """
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-    try:
-        with urllib.request.urlopen(request, timeout=TIMEOUT_SECONDS) as response:
-            return json.loads(response.read().decode("utf-8", errors="replace"))
-    except (urllib.error.URLError, TimeoutError, ValueError) as exc:
-        raise SourceError(f"could not fetch {redact(url)}: {exc}") from exc
+    last: Exception | None = None
+    for attempt in range(RETRY_ATTEMPTS):
+        try:
+            with urllib.request.urlopen(request, timeout=TIMEOUT_SECONDS) as response:
+                return json.loads(response.read().decode("utf-8", errors="replace"))
+        except urllib.error.HTTPError as exc:
+            if exc.code < 500 and exc.code != 429:
+                raise SourceError(f"could not fetch {redact(url)}: {exc}") from exc
+            last = exc
+        except (urllib.error.URLError, TimeoutError, ValueError) as exc:
+            last = exc
+        if attempt + 1 < RETRY_ATTEMPTS:
+            time.sleep(RETRY_DELAY_SECONDS * (attempt + 1))
+    raise SourceError(f"could not fetch {redact(url)}: {last}") from last
 
 
 def strip_html(markup: str | None) -> str:
