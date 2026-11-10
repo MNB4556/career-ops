@@ -186,12 +186,13 @@ class Store:
         application.updated_at = now
         return application
 
-    def _record_event(self, application_id: int, status: str, note: str | None, at: str) -> None:
+    def _record_event(self, application_id: int, status: str, note: str | None, at: str) -> int:
         """Append one transition to an application's history."""
-        self._conn.execute(
+        cursor = self._conn.execute(
             "INSERT INTO events (application_id, status, note, at) VALUES (?, ?, ?, ?)",
             (application_id, status, note, at),
         )
+        return int(cursor.lastrowid or 0)
 
     def get(self, application_id: int) -> Application | None:
         """Return the application with *application_id*, or ``None``."""
@@ -243,6 +244,34 @@ class Store:
         updated = self.get(application_id)
         assert updated is not None  # guaranteed by the existence check above
         return updated
+
+    def add_note(self, application_id: int, note: str) -> Event:
+        """Append a note to an application's history without changing its status.
+
+        The application's own ``notes`` field is left alone: that is the summary
+        shown with the application, while this note is one entry in its
+        timeline.
+        """
+        text = note.strip()
+        if not text:
+            raise ValueError("note must not be empty")
+        existing = self.get(application_id)
+        if existing is None:
+            raise KeyError(f"no application with id {application_id}")
+        now = utc_now()
+        with self._conn:
+            event_id = self._record_event(application_id, existing.status, text, now)
+            self._conn.execute(
+                "UPDATE applications SET updated_at = ? WHERE id = ?",
+                (now, application_id),
+            )
+        return Event(
+            application_id=application_id,
+            status=existing.status,
+            note=text,
+            at=now,
+            id=event_id,
+        )
 
     def delete(self, application_id: int) -> bool:
         """Delete an application and its history. Returns whether a row was removed."""
