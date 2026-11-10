@@ -226,6 +226,33 @@ def test_status_changes_are_recorded_as_history(store):
     ]
 
 
+def test_add_note_appends_to_the_timeline(store):
+    application = store.add(
+        Application(company="A", role="Dev", status="applied", notes="found through a friend")
+    )
+
+    event = store.add_note(application.id, "  recruiter replied  ")
+
+    assert event.status == "applied"
+    assert event.note == "recruiter replied"
+    assert store.get(application.id).notes == "found through a friend"
+    assert [(item.status, item.note) for item in store.timeline(application.id)] == [
+        ("applied", "found through a friend"),
+        ("applied", "recruiter replied"),
+    ]
+
+
+def test_add_note_rejects_an_empty_note(store):
+    application = store.add(Application(company="A", role="Dev"))
+    with pytest.raises(ValueError):
+        store.add_note(application.id, "   ")
+
+
+def test_add_note_rejects_a_missing_application(store):
+    with pytest.raises(KeyError):
+        store.add_note(4242, "recruiter replied")
+
+
 def test_the_first_move_to_applied_stamps_the_date(store):
     """``applied_on`` is what a follow-up is measured from, so it is automatic."""
     application = store.add(Application(company="A", role="Dev"))
